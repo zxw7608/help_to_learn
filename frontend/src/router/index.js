@@ -8,6 +8,7 @@ const routes = [
   { path: '/materials',          component: () => import('../views/Materials.vue'),      meta: { auth: true } },
   { path: '/materials/:id',      component: () => import('../views/MaterialDetail.vue'), meta: { auth: true } },
   { path: '/settings',           component: () => import('../views/Settings.vue'),       meta: { auth: true } },
+  { path: '/analysis-records',  component: () => import('../views/AnalysisRecords.vue'), meta: { auth: true } },
   // Public share page — no auth required
   { path: '/share/:id',          component: () => import('../views/ShareView.vue') },
 ]

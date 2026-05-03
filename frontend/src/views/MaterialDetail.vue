@@ -77,8 +77,11 @@
 
           <!-- Content section -->
           <div v-if="editingId !== seg.id">
-            <p class="seg-text mb-1">{{ seg.text }}</p>
+            <p class="seg-text mb-1" @contextmenu.prevent="onContextMenu($event, seg)" @touchstart="onTouchStart($event, seg)" @touchend="onTouchEnd($event, seg)">{{ seg.text }}</p>
             <p class="seg-translation mb-2" v-if="seg.translation">{{ seg.translation }}</p>
+            <div class="seg-analysis mb-2" v-if="segmentAnalysis[seg.id]">
+              <small class="text-muted">💡 {{ segmentAnalysis[seg.id].slice(0, 120) }}{{ segmentAnalysis[seg.id].length > 120 ? '...' : '' }}</small>
+            </div>
             <div class="seg-time" v-if="seg.start_time !== null">
               {{ fmtTime(seg.start_time) }} – {{ fmtTime(seg.end_time) }}
             </div>
@@ -103,6 +106,75 @@
             <button class="btn btn-seg-push-tg" @click="pushSeg(seg, 'telegram')" :disabled="pushing" :id="`btn-telegram-${seg.id}`">
               Telegram
             </button>
+            <button class="btn btn-seg-analysis-records" @click="showAnalysisRecords(seg)" :id="`btn-analysis-${seg.id}`">
+              AI解析记录
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Custom Context Menu -->
+      <div v-if="contextMenu.show" class="custom-context-menu" :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }" @click.stop>
+        <div class="context-menu-item" @click="doAnalyze" :class="{ disabled: analyzing }">
+          <span v-if="analyzing" class="spinner-border spinner-border-sm me-2"></span>
+          🔍 解析
+        </div>
+        <div class="context-menu-item" @click="doCopy">
+          📋 复制
+        </div>
+      </div>
+
+      <!-- Analysis Result Modal -->
+      <div class="modal fade" ref="analysisModal" tabindex="-1">
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">AI 解析结果</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <div v-if="analyzing" class="text-center py-4">
+                <div class="spinner-border text-primary mb-2"></div>
+                <p class="text-muted">AI 正在分析...</p>
+              </div>
+              <div v-else-if="analysisResult">
+                <p class="text-muted mb-2"><strong>选中短语:</strong> {{ analysisResult.phrase }}</p>
+                <div class="analysis-content" v-html="analysisResult.html"></div>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Analysis Records Modal -->
+      <div class="modal fade" ref="recordsModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">AI 解析记录 - 片段 #{{ recordsSegIndex }}</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <div v-if="loadingRecords" class="text-center py-3">
+                <div class="spinner-border text-primary"></div>
+              </div>
+              <div v-else-if="!analysisRecords.length" class="text-muted text-center py-3">
+                暂无解析记录
+              </div>
+              <div v-for="rec in analysisRecords" :key="rec.id" class="card mb-3">
+                <div class="card-body">
+                  <p class="mb-1"><strong>选中短语:</strong> <span class="text-primary">{{ rec.selected_phrase }}</span></p>
+                  <div class="analysis-content" v-html="formatAnalysis(rec.analysis)"></div>
+                  <small class="text-muted">{{ new Date(rec.created_at).toLocaleString() }}</small>
+                </div>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+            </div>
           </div>
         </div>
       </div>
@@ -111,9 +183,10 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
-import api, { materialsApi, segmentsApi, usersApi } from '../api/index.js'
+import api, { materialsApi, segmentsApi, usersApi, analysisApi } from '../api/index.js'
+import { Modal } from 'bootstrap'
 
 const route = useRoute()
 const materialId = Number(route.params.id)
@@ -126,6 +199,259 @@ const toast = ref(null)
 const editingId = ref(null)
 const editForm = ref({ text: '', translation: '' })
 const userConfig = ref(null)
+
+// Context menu state
+const contextMenu = ref({ show: false, x: 0, y: 0, segId: null, selectedPhrase: '' })
+let longPressTimer = null
+let touchStartX = 0
+let touchStartY = 0
+
+// AI Analysis state
+const analyzing = ref(false)
+const analysisResult = ref(null)
+const analysisModal = ref(null)
+let analysisModalInstance = null
+
+// Analysis records state
+const segmentAnalysis = ref({})  // segId -> latest analysis preview
+const analysisRecords = ref([])
+const loadingRecords = ref(false)
+const recordsSegIndex = ref(0)
+const recordsModal = ref(null)
+let recordsModalInstance = null
+
+// -- Context Menu --
+function onContextMenu(event, seg) {
+  const selection = window.getSelection()
+  const selectedText = selection ? selection.toString().trim() : ''
+
+  if (!selectedText) return
+
+  contextMenu.value = {
+    show: true,
+    x: event.clientX,
+    y: event.clientY,
+    segId: seg.id,
+    selectedPhrase: selectedText,
+  }
+}
+
+function onTouchStart(event, seg) {
+  const selection = window.getSelection()
+  const selectedText = selection ? selection.toString().trim() : ''
+
+  touchStartX = event.touches[0].clientX
+  touchStartY = event.touches[0].clientY
+
+  longPressTimer = setTimeout(() => {
+    if (selectedText) {
+      contextMenu.value = {
+        show: true,
+        x: touchStartX,
+        y: touchStartY,
+        segId: seg.id,
+        selectedPhrase: selectedText,
+      }
+    }
+  }, 600)
+}
+
+function onTouchEnd() {
+  clearTimeout(longPressTimer)
+}
+
+function closeContextMenu() {
+  contextMenu.value.show = false
+}
+
+function doCopy() {
+  navigator.clipboard.writeText(contextMenu.value.selectedPhrase).then(() => {
+    showToast('已复制', 'success')
+  }).catch(() => {
+    showToast('复制失败', 'danger')
+  })
+  closeContextMenu()
+}
+
+// -- AI Analysis --
+function getSurroundingContext(segId) {
+  const idx = segments.value.findIndex(s => s.id === segId)
+  if (idx === -1) return []
+
+  const start = Math.max(0, idx - 1)
+  const end = Math.min(segments.value.length, idx + 1)
+
+  return segments.value.slice(start, end).map(s => ({
+    index: s.index,
+    text: s.text,
+  }))
+}
+
+async function doAnalyze() {
+  const segId = contextMenu.value.segId
+  const phrase = contextMenu.value.selectedPhrase
+
+  closeContextMenu()
+
+  if (!userConfig.value?.ai_base_url || !userConfig.value?.ai_api_key) {
+    showToast('请先在设置页面配置 AI Base URL 和 API Key', 'warning')
+    return
+  }
+
+  analyzing.value = true
+  analysisResult.value = null
+
+  // Show modal
+  if (!analysisModalInstance && analysisModal.value) {
+    analysisModalInstance = new Modal(analysisModal.value)
+  }
+  analysisModalInstance?.show()
+
+  try {
+    const context = getSurroundingContext(segId)
+    const contextStr = context.map(c => `[#${c.index}] ${c.text}`).join('\n')
+
+    // Get immediate word context (5 words before/after) within the segment
+    const seg = segments.value.find(s => s.id === segId)
+    const segText = seg?.text || ''
+    const phraseIdx = segText.indexOf(phrase)
+    let immediateContext = phrase
+    if (phraseIdx !== -1) {
+      const before = segText.slice(0, phraseIdx).trim()
+      const after = segText.slice(phraseIdx + phrase.length).trim()
+      const beforeWords = before.split(/\s+/).slice(-5).join(' ')
+      const afterWords = after.split(/\s+/).slice(0, 5).join(' ')
+      immediateContext = `${beforeWords} **${phrase}** ${afterWords}`.trim()
+    }
+
+    const prompt = `You are an English language tutor. Analyze the phrase "${phrase}" from this sentence: "${immediateContext}"
+
+Full transcript context:
+${contextStr}
+
+Please provide a concise analysis in Chinese:
+
+1. 风格要求：
+
+极简： 能用 5 个字说明白，绝不用 10 个字。
+
+大白话： 像跟 5 岁小朋友说话一样，直白、简单。
+
+拒绝脑补： 不要分析心路历程，只说最直观的意思。
+
+2. 结构要求：
+
+短语整体含义：一句话说明在文中的意思。
+
+逐词解析：
+
+介词/副词/表语：给出在文中的意境，这里要用英文解释
+
+高级/核心词：用最简单的同义词替换，这里要用英文解释
+
+例句：1-2 个极简的常用句子。
+
+3. 负面约束（禁止出现）：
+
+禁止说“前者...后者...”。
+
+禁止说“隐喻”、“由下而上”、“发展轨迹”、“社会性成熟”等虚词。
+
+禁止进行深度语义对比。
+
+Keep it concise. Use plain text, no markdown other than **bold** for headers.`
+
+    const baseUrl = userConfig.value.ai_base_url.replace(/\/+$/, '')
+    const response = await fetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${userConfig.value.ai_api_key}`,
+      },
+      body: JSON.stringify({
+        model: userConfig.value.ai_model || 'gpt-3.5-turbo',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.7,
+        max_tokens: 800,
+      }),
+    })
+
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}))
+      throw new Error(errData.error?.message || `API error: ${response.status}`)
+    }
+
+    const data = await response.json()
+    const analysis = data.choices?.[0]?.message?.content || 'No analysis returned'
+
+    analysisResult.value = {
+      phrase,
+      html: formatAnalysis(analysis),
+    }
+
+    // Save to backend
+    await analysisApi.save(segId, {
+      selected_phrase: phrase,
+      analysis,
+    })
+
+    // Update preview
+    segmentAnalysis.value[segId] = analysis
+
+    showToast('解析完成', 'success')
+  } catch (e) {
+    showToast(`解析失败: ${e.message}`, 'danger')
+  } finally {
+    analyzing.value = false
+  }
+}
+
+function formatAnalysis(text) {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\n/g, '<br>')
+}
+
+// -- Analysis Records --
+async function showAnalysisRecords(seg) {
+  const segId = seg.id
+  recordsSegIndex.value = seg.index
+  loadingRecords.value = true
+  analysisRecords.value = []
+
+  if (!recordsModalInstance && recordsModal.value) {
+    recordsModalInstance = new Modal(recordsModal.value)
+  }
+  recordsModalInstance?.show()
+
+  try {
+    const res = await analysisApi.forSegment(segId)
+    analysisRecords.value = res.data
+  } catch (e) {
+    showToast('加载解析记录失败', 'danger')
+  } finally {
+    loadingRecords.value = false
+  }
+}
+
+async function loadAllAnalysisPreviews() {
+  // Load latest analysis for each segment to show preview
+  if (!segments.value.length) return
+  try {
+    const res = await analysisApi.list(1, 200)
+    const records = res.data || []
+    const previews = {}
+    for (const r of records) {
+      if (!previews[r.segment_id]) {
+        previews[r.segment_id] = r.analysis
+      }
+    }
+    segmentAnalysis.value = previews
+  } catch {}
+}
 
 // Audio sequence logic
 const isSequencePlaying = ref(false)
@@ -266,6 +592,16 @@ async function doAnkiPush(seg) {
   // 4. Add Note
   let front = seg.text
   if (seg.translation) front += `<br><small style='color:#666'>${seg.translation}</small>`
+
+  // Append analysis records if any
+  const analysisPreview = segmentAnalysis.value[seg.id]
+  if (analysisPreview) {
+    const cleanAnalysis = analysisPreview
+      .replace(/\*\*/g, '')
+      .replace(/\n/g, '<br>')
+    front += `<br><br><small style='color:#6f42c1'><strong>💡 AI解析:</strong><br>${cleanAnalysis}</small>`
+  }
+
   front += `<br><small><a href='${shareUrl}' style='color:#4a9eff'>🔗 View online</a></small>`
 
   // Use the filename returned by the server
@@ -412,6 +748,14 @@ onMounted(async () => {
   } catch(e) {}
   await loadMaterial()
   await loadSegments()
+  loadAllAnalysisPreviews()
+
+  document.addEventListener('click', closeContextMenu)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', closeContextMenu)
+  clearTimeout(longPressTimer)
 })
 </script>
 
@@ -523,5 +867,66 @@ onMounted(async () => {
 .edit-form .form-control {
   font-size: 0.9rem;
   border-radius: 8px;
+}
+
+/* Context Menu */
+.custom-context-menu {
+  position: fixed;
+  z-index: 10500;
+  background: white;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+  min-width: 200px;
+  padding: 4px 0;
+}
+
+.context-menu-item {
+  padding: 8px 16px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: #212529;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+
+.context-menu-item:hover {
+  background: #f0f7ff;
+  color: #0d6efd;
+}
+
+.context-menu-item.disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Analysis content */
+.analysis-content {
+  font-size: 0.9rem;
+  line-height: 1.7;
+  color: #343a40;
+  white-space: pre-line;
+}
+
+/* Analysis preview in segment */
+.seg-analysis {
+  font-size: 0.85rem;
+  color: #6f42c1;
+  border-left: 2px solid #6f42c1;
+  padding-left: 8px;
+}
+
+/* Analysis records button */
+.btn-seg-analysis-records {
+  font-size: 0.8rem;
+  padding: 2px 10px;
+  border: 1px solid #6f42c1;
+  background: transparent;
+  color: #6f42c1;
+  border-radius: 4px;
+}
+.btn-seg-analysis-records:hover {
+  background: #6f42c1;
+  color: white;
 }
 </style>

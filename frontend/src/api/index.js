@@ -80,4 +80,11 @@ export const usersApi = {
   update: (data) => api.patch('/users/me', data),
 }
 
+// ── Analysis ─────────────────────────────────────
+export const analysisApi = {
+  save: (segmentId, data) => api.post(`/segments/${segmentId}/analysis`, data),
+  forSegment: (segmentId) => api.get(`/segments/${segmentId}/analysis`),
+  list: (page = 1, size = 20) => api.get('/analysis-records', { params: { page, size } }),
+}
+
 export default api

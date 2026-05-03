@@ -13,6 +13,9 @@ class UserRead(BaseModel):
     anki_model_name: str
     anki_connect_url: str
     tts_worker_url: str
+    ai_base_url: Optional[str] = None
+    ai_api_key: Optional[str] = None
+    ai_model: Optional[str] = None
     created_at: datetime
     is_active: bool
 
@@ -27,3 +30,6 @@ class UserUpdate(BaseModel):
     anki_connect_url: Optional[str] = None
     tts_worker_url: Optional[str] = None
     tts_token: Optional[str] = None
+    ai_base_url: Optional[str] = None
+    ai_api_key: Optional[str] = None
+    ai_model: Optional[str] = None

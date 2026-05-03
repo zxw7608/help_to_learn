@@ -53,6 +53,31 @@
         </div>
       </div>
 
+      <!-- AI -->
+      <div class="card mb-4 shadow-sm">
+        <div class="card-header"><strong>🤖 AI 解析</strong></div>
+        <div class="card-body">
+          <div class="mb-3">
+            <label class="form-label">API Base URL</label>
+            <input v-model="form.ai_base_url" type="url" class="form-control"
+                   placeholder="https://api.openai.com/v1" id="input-ai-base-url" />
+            <div class="form-text">OpenAI-compatible API base URL (e.g., https://api.openai.com/v1, https://api.siliconflow.cn/v1).</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Model</label>
+            <input v-model="form.ai_model" type="text" class="form-control"
+                   placeholder="gpt-3.5-turbo" id="input-ai-model" />
+            <div class="form-text">Model name (e.g., gpt-3.5-turbo, gpt-4o, deepseek-chat).</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">API Key</label>
+            <input v-model="form.ai_api_key" type="password" class="form-control"
+                   placeholder="sk-..." id="input-ai-api-key" />
+            <div class="form-text">Your API key for the above service.</div>
+          </div>
+        </div>
+      </div>
+
       <!-- TTS / STT -->
       <div class="card mb-4 shadow-sm">
         <div class="card-header"><strong>🔊 TTS / STT Worker</strong></div>
@@ -89,6 +114,9 @@ const form = ref({
   anki_connect_url: '',
   telegram_chat_id: '',
   telegram_bot_token: '',
+  ai_base_url: '',
+  ai_api_key: '',
+  ai_model: '',
   tts_worker_url: '',
   tts_token: '',
 })
@@ -106,6 +134,9 @@ async function load() {
       anki_connect_url:   u.anki_connect_url || 'http://127.0.0.1:8765',
       telegram_chat_id:   u.telegram_chat_id || '',
       telegram_bot_token: '', // Sensitive
+      ai_base_url:        u.ai_base_url || '',
+      ai_api_key:         '', // Sensitive
+      ai_model:           u.ai_model || '',
       tts_worker_url:     u.tts_worker_url || '',
       tts_token:          '', // Sensitive
     }
@@ -120,6 +151,7 @@ async function save() {
     const payload = { ...form.value }
     if (!payload.tts_token) delete payload.tts_token
     if (!payload.telegram_bot_token) delete payload.telegram_bot_token
+    if (!payload.ai_api_key) delete payload.ai_api_key
     await usersApi.update(payload)
     saved.value = true
     setTimeout(() => { saved.value = false }, 3000)

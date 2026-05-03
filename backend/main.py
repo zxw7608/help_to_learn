@@ -32,7 +32,7 @@ app.add_middleware(
 )
 
 # Register routers
-from backend.routers import auth, users, materials, segments, push, jobs  # noqa: E402
+from backend.routers import auth, users, materials, segments, push, jobs, analysis  # noqa: E402
 from fastapi.responses import FileResponse
 from backend.database import get_session as _gs
 from sqlmodel import Session as _Session
@@ -43,6 +43,7 @@ app.include_router(materials.router, prefix="/api/materials", tags=["Materials"]
 app.include_router(segments.router,  prefix="/api/segments",  tags=["Segments"])
 app.include_router(push.router,      prefix="/api",           tags=["Push"])
 app.include_router(jobs.router,      prefix="/api/jobs",      tags=["Jobs"])
+app.include_router(analysis.router,  prefix="/api",           tags=["Analysis"])
 
 
 @app.get("/api/audio/{segment_id}", tags=["Audio"])

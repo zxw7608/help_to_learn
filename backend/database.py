@@ -11,7 +11,7 @@ engine = create_engine(
 def create_db_and_tables() -> None:
     """Import all models first so SQLModel.metadata knows about them, then create tables."""
     # noqa: F401 — imports required for SQLModel metadata registration
-    from backend.models import user, material, segment, job, push_record  # noqa: F401
+    from backend.models import user, material, segment, job, push_record, analysis_record  # noqa: F401
     SQLModel.metadata.create_all(engine)
 
 

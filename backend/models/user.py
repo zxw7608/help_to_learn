@@ -18,6 +18,9 @@ class User(SQLModel, table=True):
     anki_connect_url: str = Field(default="http://127.0.0.1:8765", max_length=512)
     tts_worker_url: str = Field(default="https://tts.wangwangit.com", max_length=512)
     tts_token: Optional[str] = Field(default=None, max_length=256)
+    ai_base_url: Optional[str] = Field(default=None, max_length=512)
+    ai_api_key: Optional[str] = Field(default=None, max_length=256)
+    ai_model: Optional[str] = Field(default=None, max_length=128)
 
     created_at: datetime = Field(default_factory=datetime.utcnow)
     is_active: bool = Field(default=True)
