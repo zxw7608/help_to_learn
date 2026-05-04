@@ -6,7 +6,7 @@ on:
     tags: [ 'v*.*.*' ]
   pull_request:
     branches: [ "master" ]
-
+  workflow_dispatch:
 env:
   REGISTRY: ghcr.io
   # github.repository 格式为 owner/repo
