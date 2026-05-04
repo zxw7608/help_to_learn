@@ -75,6 +75,16 @@
                    placeholder="sk-..." id="input-ai-api-key" />
             <div class="form-text">Your API key for the above service.</div>
           </div>
+          <div class="mb-3">
+            <label class="form-label">Prompt 模板</label>
+            <textarea v-model="form.ai_prompt" class="form-control" rows="10"
+                      placeholder="留空则使用默认中文解析模板..." id="input-ai-prompt"
+                      style="font-size: 0.8rem; font-family: monospace;"></textarea>
+            <div class="form-text">
+              可用变量: <code>$\{phrase\}</code> <code>$\{immediateContext\}</code> <code>$\{contextStr\}</code>
+              留空则使用默认中文解析模板。
+            </div>
+          </div>
         </div>
       </div>
 
@@ -117,6 +127,7 @@ const form = ref({
   ai_base_url: '',
   ai_api_key: '',
   ai_model: '',
+  ai_prompt: '',
   tts_worker_url: '',
   tts_token: '',
 })
@@ -137,6 +148,7 @@ async function load() {
       ai_base_url:        u.ai_base_url || '',
       ai_api_key:         '', // Sensitive
       ai_model:           u.ai_model || '',
+      ai_prompt:          u.ai_prompt || '',
       tts_worker_url:     u.tts_worker_url || '',
       tts_token:          '', // Sensitive
     }

@@ -324,10 +324,10 @@ async function doAnalyze() {
       immediateContext = `${beforeWords} **${phrase}** ${afterWords}`.trim()
     }
 
-    const prompt = `You are an English language tutor. Analyze the phrase "${phrase}" from this sentence: "${immediateContext}"
+    const defaultPrompt = `You are an English language tutor. Analyze the phrase “\${phrase}” from this sentence: “\${immediateContext}”
 
 Full transcript context:
-${contextStr}
+\${contextStr}
 
 Please provide a concise analysis in Chinese:
 
@@ -353,13 +353,19 @@ Please provide a concise analysis in Chinese:
 
 3. 负面约束（禁止出现）：
 
-禁止说“前者...后者...”。
+禁止说”前者...后者...”。
 
-禁止说“隐喻”、“由下而上”、“发展轨迹”、“社会性成熟”等虚词。
+禁止说”隐喻”、”由下而上”、”发展轨迹”、”社会性成熟”等虚词。
 
 禁止进行深度语义对比。
 
 Keep it concise. Use plain text, no markdown other than **bold** for headers.`
+
+    const promptTemplate = userConfig.value?.ai_prompt || defaultPrompt
+    const prompt = promptTemplate
+      .replace(/\$\{phrase\}/g, phrase)
+      .replace(/\$\{immediateContext\}/g, immediateContext)
+      .replace(/\$\{contextStr\}/g, contextStr)
 
     const baseUrl = userConfig.value.ai_base_url.replace(/\/+$/, '')
     const response = await fetch(`${baseUrl}/chat/completions`, {

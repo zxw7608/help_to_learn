@@ -16,6 +16,7 @@ class UserRead(BaseModel):
     ai_base_url: Optional[str] = None
     ai_api_key: Optional[str] = None
     ai_model: Optional[str] = None
+    ai_prompt: Optional[str] = None
     created_at: datetime
     is_active: bool
 
@@ -33,3 +34,4 @@ class UserUpdate(BaseModel):
     ai_base_url: Optional[str] = None
     ai_api_key: Optional[str] = None
     ai_model: Optional[str] = None
+    ai_prompt: Optional[str] = None
