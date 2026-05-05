@@ -1,6 +1,6 @@
 services:
   app:
-    build: .
+    image: ghcr.io/zxw7608/help_to_learn:latest
     restart: unless-stopped
     ports:
       - "80:80"
@@ -8,6 +8,5 @@ services:
       - ./storage:/app/storage
       - ./data:/app/data
       - ./cookies.txt:/app/cookies.txt
-      # 移除 env_file: - .env，因为它不再需要了
-      # 你可以在这里继续添加其他需要的配置，例如：
+    environment:
       - SITE_BASE_URL=https://yourdomain.com

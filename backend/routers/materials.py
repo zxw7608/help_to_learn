@@ -10,12 +10,13 @@ from sqlmodel import Session, select, func
 from backend.database import get_session
 from backend.dependencies import get_current_user
 from backend.models.user import User
-from backend.models.material import Material, MaterialStatus, SourceType, MediaType
+from backend.models.material import Material, MaterialStatus, MaterialType, SourceType, MediaType
 from backend.models.job import Job, JobType, JobStatus
 from backend.models.segment import Segment
 from backend.schemas.material import (
     MaterialRead, MaterialPage,
     MaterialCreate_URL_Media, MaterialCreate_URL_Article, MaterialCreate_Text,
+    MaterialCreate_TextSnippet,
 )
 from backend.schemas.job import MaterialJobCreated
 from backend.config import settings
@@ -35,10 +36,26 @@ def _create_job(session: Session, material_id: int) -> Job:
     return job
 
 
+def _trigger_worker() -> None:
+    """Notify the worker to poll immediately instead of waiting for the next interval."""
+    import threading
+    threading.Thread(target=_run_worker_poll, daemon=True).start()
+
+
+def _run_worker_poll() -> None:
+    """Run one poll cycle in-process, then signal the scheduler to check again soon."""
+    try:
+        from backend.worker import poll_and_process
+        poll_and_process()
+    except Exception:
+        pass
+
+
 @router.post("/upload", response_model=MaterialJobCreated, status_code=status.HTTP_201_CREATED)
 async def upload_material(
     title: str = Form(...),
     language: str = Form("en"),
+    material_type: MaterialType = Form(MaterialType.main),
     file: UploadFile = File(...),
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
@@ -58,6 +75,7 @@ async def upload_material(
         source_type=SourceType.upload,
         language=language,
         media_type=MediaType.video if ext in {".mp4", ".mkv", ".webm"} else MediaType.audio,
+        material_type=material_type,
     )
     session.add(material)
     session.commit()
@@ -83,6 +101,7 @@ async def upload_material(
     session.commit()
 
     job = _create_job(session, material.id)
+    _trigger_worker()
     return MaterialJobCreated(material_id=material.id, job_id=job.id)
 
 
@@ -100,12 +119,14 @@ def import_url_media(
         source_url=body.url,
         language=body.language,
         media_type=MediaType.video,
+        material_type=body.material_type,
     )
     session.add(material)
     session.commit()
     session.refresh(material)
 
     job = _create_job(session, material.id)
+    _trigger_worker()
     return MaterialJobCreated(material_id=material.id, job_id=job.id)
 
 
@@ -123,12 +144,14 @@ def import_url_article(
         source_url=body.url,
         language=body.language,
         media_type=MediaType.text,
+        material_type=body.material_type,
     )
     session.add(material)
     session.commit()
     session.refresh(material)
 
     job = _create_job(session, material.id)
+    _trigger_worker()
     return MaterialJobCreated(material_id=material.id, job_id=job.id)
 
 
@@ -146,12 +169,40 @@ def import_text(
         raw_text=body.text,
         language=body.language,
         media_type=MediaType.text,
+        material_type=body.material_type,
     )
     session.add(material)
     session.commit()
     session.refresh(material)
 
     job = _create_job(session, material.id)
+    _trigger_worker()
+    return MaterialJobCreated(material_id=material.id, job_id=job.id)
+
+
+@router.post("/text-snippet", response_model=MaterialJobCreated, status_code=status.HTTP_201_CREATED)
+def import_text_snippet(
+    body: MaterialCreate_TextSnippet,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Import a short text snippet as a temporary material. TTS will be generated."""
+    title = body.title or (body.text[:50] + ("..." if len(body.text) > 50 else ""))
+    material = Material(
+        user_id=current_user.id,
+        title=title,
+        source_type=SourceType.text,
+        raw_text=body.text,
+        language=body.language,
+        media_type=MediaType.text,
+        material_type=MaterialType.temporary,
+    )
+    session.add(material)
+    session.commit()
+    session.refresh(material)
+
+    job = _create_job(session, material.id)
+    _trigger_worker()
     return MaterialJobCreated(material_id=material.id, job_id=job.id)
 
 
@@ -159,20 +210,22 @@ def import_text(
 def list_materials(
     page: int = 1,
     size: int = 20,
+    material_type: Optional[MaterialType] = None,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
     offset = (page - 1) * size
-    query = select(Material).where(
+    conditions = [
         Material.user_id == current_user.id,
         Material.is_deleted == False,
-    ).order_by(Material.created_at.desc())
+    ]
+    if material_type is not None:
+        conditions.append(Material.material_type == material_type)
+
+    query = select(Material).where(*conditions).order_by(Material.created_at.desc())
 
     total = session.exec(select(func.count()).select_from(
-        select(Material).where(
-            Material.user_id == current_user.id,
-            Material.is_deleted == False,
-        ).subquery()
+        select(Material).where(*conditions).subquery()
     )).one()
 
     items = session.exec(query.offset(offset).limit(size)).all()
@@ -280,4 +333,5 @@ def re_execute_material(
     session.refresh(material)
 
     job = _create_job(session, material.id)
+    _trigger_worker()
     return MaterialJobCreated(material_id=material.id, job_id=job.id)

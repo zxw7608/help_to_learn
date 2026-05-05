@@ -1,9 +1,9 @@
 <template>
   <div class="container-fluid py-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
-      <h1 class="h4 mb-0">Materials</h1>
+      <h1 class="h4 mb-0">{{ isTemporary ? 'Temporary Materials' : 'Materials' }}</h1>
       <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addModal" id="btn-add-material">
-        + Add Material
+        + Add {{ isTemporary ? 'Temporary' : 'Material' }}
       </button>
     </div>
 
@@ -21,6 +21,7 @@
               <tr>
                 <th>Title</th>
                 <th>Type</th>
+                <th>Category</th>
                 <th>Status</th>
                 <th>Language</th>
                 <th>Created</th>
@@ -28,15 +29,20 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-if="loading"><td colspan="6" class="text-center py-4">
+              <tr v-if="loading"><td colspan="7" class="text-center py-4">
                 <span class="spinner-border spinner-border-sm"></span> Loading...
               </td></tr>
-              <tr v-else-if="!materials.length"><td colspan="6" class="text-center py-4 text-muted">
+              <tr v-else-if="!materials.length"><td colspan="7" class="text-center py-4 text-muted">
                 No materials yet. Click <strong>Add Material</strong> to get started.
               </td></tr>
               <tr v-for="m in materials" :key="m.id" class="cursor-pointer" @click="goDetail(m.id)">
                 <td class="fw-semibold">{{ m.title }}</td>
                 <td><span class="badge bg-secondary">{{ m.source_type }}</span></td>
+                <td>
+                  <span :class="m.material_type === 'temporary' ? 'badge bg-info' : 'badge bg-light text-dark'">
+                    {{ m.material_type }}
+                  </span>
+                </td>
                 <td>
                   <span :class="statusBadge(m.status)">{{ m.status }}</span>
                 </td>
@@ -174,12 +180,16 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, onMounted, computed } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { materialsApi } from '../api/index.js'
 import { Modal } from 'bootstrap'
 
 const router = useRouter()
+const route = useRoute()
+const materialType = computed(() => route.meta.materialType || 'main')
+const isTemporary = computed(() => materialType.value === 'temporary')
+
 const materials = ref([])
 const total = ref(0)
 const page = ref(1)
@@ -190,10 +200,10 @@ const importError = ref('')
 const toast = ref(null)
 
 const tabs = [
-  { key: 'upload',      label: '📁 Upload File' },
-  { key: 'url_media',   label: '🎬 Media URL' },
-  { key: 'url_article', label: '📰 Article URL' },
-  { key: 'text',        label: '📝 Plain Text' },
+  { key: 'upload',      label: 'Upload File' },
+  { key: 'url_media',   label: 'Media URL' },
+  { key: 'url_article', label: 'Article URL' },
+  { key: 'text',        label: 'Plain Text' },
 ]
 const activeTab = ref('upload')
 
@@ -207,7 +217,7 @@ const forms = ref({
 async function load() {
   loading.value = true
   try {
-    const res = await materialsApi.list(page.value, pageSize)
+    const res = await materialsApi.list(page.value, pageSize, materialType.value)
     materials.value = res.data.items
     total.value = res.data.total
   } finally {
@@ -219,6 +229,7 @@ async function submitImport() {
   importError.value = ''
   importing.value = true
   try {
+    const mt = materialType.value
     if (activeTab.value === 'upload') {
       const f = forms.value.upload
       if (!f.file) { importError.value = 'Please select a file'; importing.value = false; return }
@@ -226,14 +237,15 @@ async function submitImport() {
       fd.append('file', f.file)
       fd.append('title', f.title || f.file.name)
       fd.append('language', f.language)
+      fd.append('material_type', mt)
       await materialsApi.uploadFile(fd)
     } else if (activeTab.value === 'url_media') {
-      await materialsApi.importUrlMedia(forms.value.url_media)
+      await materialsApi.importUrlMedia({ ...forms.value.url_media, material_type: mt })
     } else if (activeTab.value === 'url_article') {
-      await materialsApi.importUrlArticle(forms.value.url_article)
+      await materialsApi.importUrlArticle({ ...forms.value.url_article, material_type: mt })
     } else {
       if (!forms.value.text.title) { importError.value = 'Title is required'; importing.value = false; return }
-      await materialsApi.importText(forms.value.text)
+      await materialsApi.importText({ ...forms.value.text, material_type: mt })
     }
 
     Modal.getInstance(document.getElementById('addModal'))?.hide()

@@ -1,7 +1,7 @@
 from sqlmodel import SQLModel, Field
 from datetime import datetime
 from typing import Optional
-
+import sqlalchemy as sa
 
 class User(SQLModel, table=True):
     __tablename__ = "users"
@@ -21,7 +21,7 @@ class User(SQLModel, table=True):
     ai_base_url: Optional[str] = Field(default=None, max_length=512)
     ai_api_key: Optional[str] = Field(default=None, max_length=256)
     ai_model: Optional[str] = Field(default=None, max_length=128)
-    ai_prompt: Optional[str] = Field(default=None, max_length=4096)
+    ai_prompt: Optional[str] = Field(default=None, max_length=4096, sa_type=sa.TEXT())
 
     created_at: datetime = Field(default_factory=datetime.utcnow)
     is_active: bool = Field(default=True)

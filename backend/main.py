@@ -4,16 +4,12 @@ from contextlib import asynccontextmanager
 import os
 
 from backend.config import settings
-from backend.database import create_db_and_tables
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Create storage directories
     for sub in ("originals", "audio", "temp"):
         os.makedirs(os.path.join(settings.STORAGE_BASE_PATH, sub), exist_ok=True)
-    # Create DB tables
-    create_db_and_tables()
     yield
 
 

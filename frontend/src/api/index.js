@@ -45,7 +45,11 @@ export const authApi = {
 
 // ── Materials ────────────────────────────────────
 export const materialsApi = {
-  list: (page = 1, size = 20) => api.get('/materials', { params: { page, size } }),
+  list: (page = 1, size = 20, materialType = null) => {
+    const params = { page, size }
+    if (materialType) params.material_type = materialType
+    return api.get('/materials', { params })
+  },
   get: (id) => api.get(`/materials/${id}`),
   delete: (id) => api.delete(`/materials/${id}`),
   uploadFile: (formData) => api.post('/materials/upload', formData, {
@@ -55,6 +59,7 @@ export const materialsApi = {
   importUrlMedia: (data) => api.post('/materials/url-media', data),
   importUrlArticle: (data) => api.post('/materials/url-article', data),
   importText: (data) => api.post('/materials/text', data),
+  importTextSnippet: (data) => api.post('/materials/text-snippet', data),
   getSegments: (id) => api.get(`/materials/${id}/segments`),
   push: (id, platform) => api.post(`/materials/${id}/push`, { platform }),
   reExecute: (id) => api.post(`/materials/${id}/re-execute`),

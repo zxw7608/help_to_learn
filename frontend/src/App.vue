@@ -13,6 +13,9 @@
             <RouterLink class="nav-link" to="/materials">Materials</RouterLink>
           </li>
           <li class="nav-item">
+            <RouterLink class="nav-link" to="/materials/temporary">Temporary</RouterLink>
+          </li>
+          <li class="nav-item">
             <RouterLink class="nav-link" to="/settings">Settings</RouterLink>
           </li>
         </ul>

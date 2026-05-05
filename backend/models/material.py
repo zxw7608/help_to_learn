@@ -17,6 +17,11 @@ class MediaType(str, Enum):
     text = "text"
 
 
+class MaterialType(str, Enum):
+    main = "main"
+    temporary = "temporary"
+
+
 class MaterialStatus(str, Enum):
     pending = "pending"
     processing = "processing"
@@ -38,6 +43,7 @@ class Material(SQLModel, table=True):
     media_type: Optional[MediaType] = Field(default=None)
     duration: Optional[float] = Field(default=None)       # seconds, media only
     language: str = Field(default="en", max_length=16)
+    material_type: MaterialType = Field(default=MaterialType.main, max_length=5)
 
     status: MaterialStatus = Field(default=MaterialStatus.pending)
     error_msg: Optional[str] = Field(default=None)

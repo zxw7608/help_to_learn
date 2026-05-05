@@ -6,6 +6,7 @@ const routes = [
   { path: '/login',    component: () => import('../views/Login.vue'),          meta: { guest: true } },
   { path: '/register', component: () => import('../views/Register.vue'),       meta: { guest: true } },
   { path: '/materials',          component: () => import('../views/Materials.vue'),      meta: { auth: true } },
+  { path: '/materials/temporary', component: () => import('../views/Materials.vue'),      meta: { auth: true, materialType: 'temporary' } },
   { path: '/materials/:id',      component: () => import('../views/MaterialDetail.vue'), meta: { auth: true } },
   { path: '/settings',           component: () => import('../views/Settings.vue'),       meta: { auth: true } },
   { path: '/analysis-records',  component: () => import('../views/AnalysisRecords.vue'), meta: { auth: true } },

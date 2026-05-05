@@ -1,24 +1,33 @@
 from pydantic import BaseModel
 from datetime import datetime
 from typing import Optional
-from backend.models.material import SourceType, MediaType, MaterialStatus
+from backend.models.material import SourceType, MediaType, MaterialType, MaterialStatus
 
 
 class MaterialCreate_URL_Media(BaseModel):
     url: str
     title: Optional[str] = None
     language: str = "en"
+    material_type: MaterialType = MaterialType.main
 
 
 class MaterialCreate_URL_Article(BaseModel):
     url: str
     title: Optional[str] = None
     language: str = "en"
+    material_type: MaterialType = MaterialType.main
 
 
 class MaterialCreate_Text(BaseModel):
     text: str
     title: str
+    language: str = "en"
+    material_type: MaterialType = MaterialType.main
+
+
+class MaterialCreate_TextSnippet(BaseModel):
+    text: str
+    title: Optional[str] = None
     language: str = "en"
 
 
@@ -31,6 +40,7 @@ class MaterialRead(BaseModel):
     media_type: Optional[MediaType]
     duration: Optional[float]
     language: str
+    material_type: MaterialType
     status: MaterialStatus
     error_msg: Optional[str]
     is_deleted: bool

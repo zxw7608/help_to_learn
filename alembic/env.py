@@ -18,7 +18,7 @@ if config.config_file_name is not None:
 # for 'autogenerate' support
 from sqlmodel import SQLModel
 from backend.config import settings
-from backend.models import user, material, segment, job, push_record
+from backend.models import user, material, segment, job, push_record, analysis_record
 
 # Inject config from settings
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
