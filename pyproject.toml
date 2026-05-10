@@ -17,4 +17,7 @@ dependencies = [
     "aiofiles>=24.1.0",
     "email-validator>=2.1.0",
     "alembic>=1.18.4",
+    "silero-vad>=5.1.0",
+    "onnxruntime>=1.16.0",
+    "numpy>=2.0.0",
 ]
