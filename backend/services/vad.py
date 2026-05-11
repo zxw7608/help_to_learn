@@ -59,7 +59,7 @@ def detect_speech_segments(
     min_speech_duration_ms: int = 500,
     min_silence_duration_ms: int = 400,
     threshold: float = 0.5,
-    merge_gap: float = 0.5,
+    merge_gap: float = 0.9,
     max_duration: float = 15.0,
 ) -> list[dict]:
     """
