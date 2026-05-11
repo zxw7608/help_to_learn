@@ -72,7 +72,8 @@ def synthesize(
     }
 
     logger.info(f"Calling TTS API for {len(text)} chars: {url}")
-    response = httpx.post(url, json=payload, timeout=120)
+    from backend.services.retry import retry_call
+    response = retry_call(lambda: httpx.post(url, json=payload, timeout=120))
 
     if response.status_code != 200:
         raise RuntimeError(f"TTS API error {response.status_code}: {response.text}")

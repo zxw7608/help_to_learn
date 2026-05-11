@@ -26,7 +26,8 @@ def fetch(url: str) -> str:
     Returns plain text (paragraphs joined by newlines).
     """
     logger.info(f"Fetching article: {url}")
-    response = httpx.get(url, headers=HEADERS, follow_redirects=True, timeout=30)
+    from backend.services.retry import retry_call
+    response = retry_call(lambda: httpx.get(url, headers=HEADERS, follow_redirects=True, timeout=30))
     response.raise_for_status()
 
     soup = BeautifulSoup(response.text, "html.parser")

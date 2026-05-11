@@ -69,25 +69,29 @@ def _transcribe_file(
     """Call the STT API and parse the response. Returns segments with adjusted timestamps."""
     url = f"{worker_url.rstrip('/')}/v1/audio/transcriptions"
 
-    with open(audio_path, "rb") as f:
-        files = {"file": (os.path.basename(audio_path), f, "audio/wav")}
-        data = {"response_format": "verbose_json"}
-        if token:
-            data["token"] = token
+    from backend.config import settings
+    proxies = {}
+    if settings.HTTP_PROXY:
+        proxies["http://"] = settings.HTTP_PROXY
+    if settings.HTTPS_PROXY:
+        proxies["https://"] = settings.HTTPS_PROXY
+    elif settings.HTTP_PROXY:
+        proxies["https://"] = settings.HTTP_PROXY
 
-        from backend.config import settings
-        proxies = {}
-        if settings.HTTP_PROXY:
-            proxies["http://"] = settings.HTTP_PROXY
-        if settings.HTTPS_PROXY:
-            proxies["https://"] = settings.HTTPS_PROXY
-        elif settings.HTTP_PROXY:
-            proxies["https://"] = settings.HTTP_PROXY
+    logger.info(f"Calling STT API: {url}" + (f" via proxy {settings.HTTP_PROXY}" if settings.HTTP_PROXY else ""))
 
-        logger.info(f"Calling STT API: {url}" + (f" via proxy {settings.HTTP_PROXY}" if settings.HTTP_PROXY else ""))
-        client_kwargs = {"proxies": proxies} if proxies else {}
-        with httpx.Client(**client_kwargs) as client:
-            response = client.post(url, files=files, data=data, timeout=300)
+    def _do_request():
+        with open(audio_path, "rb") as f:
+            files = {"file": (os.path.basename(audio_path), f, "audio/wav")}
+            data = {"response_format": "verbose_json"}
+            if token:
+                data["token"] = token
+            client_kwargs = {"proxies": proxies} if proxies else {}
+            with httpx.Client(**client_kwargs) as client:
+                return client.post(url, files=files, data=data, timeout=300)
+
+    from backend.services.retry import retry_call
+    response = retry_call(_do_request)
 
     if response.status_code != 200:
         raise RuntimeError(f"STT API error {response.status_code}: {response.text}")
