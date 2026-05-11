@@ -88,13 +88,13 @@ def _transcribe_file(
                 data["token"] = token
             client_kwargs = {"proxies": proxies} if proxies else {}
             with httpx.Client(**client_kwargs) as client:
-                return client.post(url, files=files, data=data, timeout=300)
+                resp = client.post(url, files=files, data=data, timeout=300)
+        if resp.status_code != 200:
+            raise RuntimeError(f"STT API error {resp.status_code}: {resp.text}")
+        return resp
 
     from backend.services.retry import retry_call
     response = retry_call(_do_request)
-
-    if response.status_code != 200:
-        raise RuntimeError(f"STT API error {response.status_code}: {response.text}")
 
     result = response.json()
 

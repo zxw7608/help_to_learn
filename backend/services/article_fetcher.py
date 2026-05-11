@@ -27,8 +27,13 @@ def fetch(url: str) -> str:
     """
     logger.info(f"Fetching article: {url}")
     from backend.services.retry import retry_call
-    response = retry_call(lambda: httpx.get(url, headers=HEADERS, follow_redirects=True, timeout=30))
-    response.raise_for_status()
+
+    def _do_request():
+        resp = httpx.get(url, headers=HEADERS, follow_redirects=True, timeout=30)
+        resp.raise_for_status()
+        return resp
+
+    response = retry_call(_do_request)
 
     soup = BeautifulSoup(response.text, "html.parser")
 

@@ -36,18 +36,17 @@ def send_audio(
     def _do_request():
         with open(audio_path, "rb") as f:
             files = {"audio": (os.path.basename(audio_path), f, "audio/mpeg")}
-            return httpx.post(url, data=data, files=files, timeout=120)
+            resp = httpx.post(url, data=data, files=files, timeout=120)
+        if resp.status_code != 200:
+            raise RuntimeError(f"Telegram API error {resp.status_code}: {resp.text}")
+        result = resp.json()
+        if not result.get("ok"):
+            raise RuntimeError(f"Telegram API returned error: {result.get('description')}")
+        return result
 
     logger.info(f"Sending audio to Telegram chat {chat_id}")
     from backend.services.retry import retry_call
     response = retry_call(_do_request)
-
-    if response.status_code != 200:
-        raise RuntimeError(f"Telegram API error {response.status_code}: {response.text}")
-
-    result = response.json()
-    if not result.get("ok"):
-        raise RuntimeError(f"Telegram API returned error: {result.get('description')}")
 
     return result
 
