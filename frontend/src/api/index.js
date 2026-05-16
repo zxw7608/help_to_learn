@@ -83,6 +83,9 @@ export const jobsApi = {
 export const usersApi = {
   me: () => api.get('/users/me'),
   update: (data) => api.patch('/users/me', data),
+  uploadCookies: (formData) => api.post('/users/me/cookies', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }),
 }
 
 // ── Analysis ─────────────────────────────────────

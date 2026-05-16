@@ -65,12 +65,19 @@ def process_media_material(material: Material, session: Session) -> None:
 
     # Step 1: Download if needed
     if material.source_type == SourceType.url_media:
+        # Look up user for per-user proxy / cookie settings
+        with Session(engine) as s:
+            from backend.models.user import User
+            user = s.get(User, material.user_id)
         logger.info(f"Downloading media from: {material.source_url}")
         file_path, subtitle_segments = downloader.download(
             url=material.source_url,
             material_id=material.id,
             user_id=material.user_id,
             base_path=settings.STORAGE_BASE_PATH,
+            http_proxy=user.http_proxy if user else None,
+            ytdlp_proxy=user.ytdlp_proxy if user else None,
+            ytdlp_cookies=user.ytdlp_cookies if user else None,
         )
         material.original_file_path = file_path
         # Try to get duration
@@ -131,7 +138,11 @@ def process_media_material(material: Material, session: Session) -> None:
         worker_url = (user.tts_worker_url if user else None) or settings.TTS_WORKER_URL
 
     chunk_dir = os.path.join(temp_dir, "chunks")
-    segments_data = transcriber.transcribe(wav_path, worker_url, token, chunk_dir=chunk_dir)
+    segments_data = transcriber.transcribe(
+        wav_path, worker_url, token, chunk_dir=chunk_dir,
+        http_proxy=user.http_proxy if user else None,
+        https_proxy=user.https_proxy if user else None,
+    )
 
     if not segments_data:
         raise RuntimeError("STT returned no segments")
@@ -170,10 +181,20 @@ def process_media_material(material: Material, session: Session) -> None:
 
 def process_text_material(material: Material, session: Session) -> None:
     """Branch B: url_article / text — fetch text if needed, TTS each sentence."""
+    # Look up user settings (proxy, worker) once
+    with Session(engine) as s:
+        from backend.models.user import User
+        user = s.get(User, material.user_id)
+        worker_url = (user.tts_worker_url if user else None) or settings.TTS_WORKER_URL
+        http_proxy = user.http_proxy if user else None
+        https_proxy = user.https_proxy if user else None
+
     # Step 1: Fetch article if URL
     if material.source_type == SourceType.url_article:
         logger.info(f"Fetching article: {material.source_url}")
-        raw_text = article_fetcher.fetch(material.source_url)
+        raw_text = article_fetcher.fetch(material.source_url,
+                                          http_proxy=http_proxy,
+                                          https_proxy=https_proxy)
         material.raw_text = raw_text
         session.add(material)
         session.commit()
@@ -192,11 +213,6 @@ def process_text_material(material: Material, session: Session) -> None:
     audio_dir = os.path.join(settings.STORAGE_BASE_PATH, "audio", str(material.user_id), str(material.id))
     os.makedirs(audio_dir, exist_ok=True)
 
-    with Session(engine) as s:
-        from backend.models.user import User
-        user = s.get(User, material.user_id)
-        worker_url = (user.tts_worker_url if user else None) or settings.TTS_WORKER_URL
-
     # Pick a random voice for this entire material to keep it consistent within segments
     selected_voice = tts_service.get_random_voice(material.language)
     logger.info(f"Selected random voice for material {material.id}: {selected_voice}")
@@ -205,7 +221,8 @@ def process_text_material(material: Material, session: Session) -> None:
         seg_filename = f"seg_{i:03d}.mp3"
         seg_path = os.path.join(audio_dir, seg_filename)
         logger.info(f"TTS segment {i}/{len(sentences)} using voice {selected_voice}")
-        tts_service.synthesize(sentence, seg_path, worker_url, voice=selected_voice)
+        tts_service.synthesize(sentence, seg_path, worker_url, voice=selected_voice,
+                               http_proxy=http_proxy, https_proxy=https_proxy)
 
         segment = Segment(
             material_id=material.id,

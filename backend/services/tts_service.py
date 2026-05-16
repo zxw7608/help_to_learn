@@ -56,11 +56,15 @@ def synthesize(
     worker_url: str,
     voice: str = DEFAULT_VOICE,
     speed: float = 1.0,
+    http_proxy: Optional[str] = None,
+    https_proxy: Optional[str] = None,
 ) -> str:
     """
     Convert text to speech and save as mp3.
     Returns the output_path.
     """
+    from backend.services.proxy import build_proxies
+
     url = f"{worker_url.rstrip('/')}/v1/audio/speech"
 
     payload = {
@@ -71,8 +75,11 @@ def synthesize(
         "style": "general",
     }
 
-    logger.info(f"Calling TTS API for {len(text)} chars: {url}")
-    response = httpx.post(url, json=payload, timeout=120)
+    proxies = build_proxies(http_proxy, https_proxy)
+    logger.info(f"Calling TTS API for {len(text)} chars: {url}" + (f" via proxy {proxies}" if proxies else ""))
+    client_kwargs = {"proxies": proxies} if proxies else {}
+    with httpx.Client(**client_kwargs) as client:
+        response = client.post(url, json=payload, timeout=120)
 
     if response.status_code != 200:
         raise RuntimeError(f"TTS API error {response.status_code}: {response.text}")

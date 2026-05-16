@@ -17,6 +17,10 @@ class UserRead(BaseModel):
     ai_api_key: Optional[str] = None
     ai_model: Optional[str] = None
     ai_prompt: Optional[str] = None
+    http_proxy: Optional[str] = None
+    https_proxy: Optional[str] = None
+    ytdlp_proxy: Optional[str] = None
+    ytdlp_cookies: Optional[str] = None
     created_at: datetime
     is_active: bool
 
@@ -35,3 +39,7 @@ class UserUpdate(BaseModel):
     ai_api_key: Optional[str] = None
     ai_model: Optional[str] = None
     ai_prompt: Optional[str] = None
+    http_proxy: Optional[str] = None
+    https_proxy: Optional[str] = None
+    ytdlp_proxy: Optional[str] = None
+    ytdlp_cookies: Optional[str] = None

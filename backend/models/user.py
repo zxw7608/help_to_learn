@@ -22,6 +22,10 @@ class User(SQLModel, table=True):
     ai_api_key: Optional[str] = Field(default=None, max_length=256)
     ai_model: Optional[str] = Field(default=None, max_length=128)
     ai_prompt: Optional[str] = Field(default=None, max_length=4096, sa_type=sa.TEXT())
+    http_proxy: Optional[str] = Field(default=None, max_length=512)
+    https_proxy: Optional[str] = Field(default=None, max_length=512)
+    ytdlp_proxy: Optional[str] = Field(default=None, max_length=512)
+    ytdlp_cookies: Optional[str] = Field(default=None, max_length=512)
 
     created_at: datetime = Field(default_factory=datetime.utcnow)
     is_active: bool = Field(default=True)

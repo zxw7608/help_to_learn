@@ -88,6 +88,42 @@
         </div>
       </div>
 
+      <!-- Proxy -->
+      <div class="card mb-4 shadow-sm">
+        <div class="card-header"><strong>🌐 Proxy</strong></div>
+        <div class="card-body">
+          <div class="mb-3">
+            <label class="form-label">HTTP Proxy</label>
+            <input v-model="form.http_proxy" type="text" class="form-control"
+                   placeholder="http://127.0.0.1:7890" id="input-http-proxy" />
+            <div class="form-text">Used for HTTP requests (STT/TTS API calls) and yt-dlp downloads. Supports http://, https://, socks5://.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">HTTPS Proxy</label>
+            <input v-model="form.https_proxy" type="text" class="form-control"
+                   placeholder="http://127.0.0.1:7890" id="input-https-proxy" />
+            <div class="form-text">Falls back to HTTP Proxy if left empty.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">yt-dlp Proxy (Optional)</label>
+            <input v-model="form.ytdlp_proxy" type="text" class="form-control"
+                   placeholder="Leave empty to use HTTP Proxy" id="input-ytdlp-proxy" />
+            <div class="form-text">Override proxy specifically for yt-dlp. Falls back to HTTP Proxy.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">yt-dlp Cookies File</label>
+            <input type="file" class="form-control" accept=".txt"
+                   @change="onCookiesFileChange" id="input-ytdlp-cookies" />
+            <div class="form-text" v-if="form.ytdlp_cookies">
+              Current: <code>{{ form.ytdlp_cookies }}</code>
+            </div>
+            <div class="form-text" v-else>
+              Upload a Netscape-format cookies.txt for yt-dlp authenticated downloads (e.g. YouTube members-only videos).
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- TTS / STT -->
       <div class="card mb-4 shadow-sm">
         <div class="card-header"><strong>🔊 TTS / STT Worker</strong></div>
@@ -128,12 +164,22 @@ const form = ref({
   ai_api_key: '',
   ai_model: '',
   ai_prompt: '',
+  http_proxy: '',
+  https_proxy: '',
+  ytdlp_proxy: '',
+  ytdlp_cookies: '',
   tts_worker_url: '',
   tts_token: '',
 })
+const cookiesFile = ref(null)
 const saving = ref(false)
 const saved = ref(false)
 const error = ref('')
+
+function onCookiesFileChange(e) {
+  const f = e.target.files?.[0]
+  if (f) cookiesFile.value = f
+}
 
 async function load() {
   try {
@@ -149,6 +195,10 @@ async function load() {
       ai_api_key:         '', // Sensitive
       ai_model:           u.ai_model || '',
       ai_prompt:          u.ai_prompt || '',
+      http_proxy:         u.http_proxy || '',
+      https_proxy:        u.https_proxy || '',
+      ytdlp_proxy:        u.ytdlp_proxy || '',
+      ytdlp_cookies:      u.ytdlp_cookies || '',
       tts_worker_url:     u.tts_worker_url || '',
       tts_token:          '', // Sensitive
     }
@@ -160,10 +210,26 @@ async function save() {
   saved.value = false
   error.value = ''
   try {
+    // Upload cookies file first if selected
+    if (cookiesFile.value) {
+      const fd = new FormData()
+      fd.append('file', cookiesFile.value)
+      const res = await usersApi.uploadCookies(fd)
+      form.value.ytdlp_cookies = res.data.path
+      cookiesFile.value = null
+      // Reset file input
+      const input = document.getElementById('input-ytdlp-cookies')
+      if (input) input.value = ''
+    }
+
     const payload = { ...form.value }
     if (!payload.tts_token) delete payload.tts_token
     if (!payload.telegram_bot_token) delete payload.telegram_bot_token
     if (!payload.ai_api_key) delete payload.ai_api_key
+    if (!payload.http_proxy) delete payload.http_proxy
+    if (!payload.https_proxy) delete payload.https_proxy
+    if (!payload.ytdlp_proxy) delete payload.ytdlp_proxy
+    delete payload.ytdlp_cookies  // uploaded separately, not via PATCH
     await usersApi.update(payload)
     saved.value = true
     setTimeout(() => { saved.value = false }, 3000)

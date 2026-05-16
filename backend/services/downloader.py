@@ -54,22 +54,27 @@ def _run(cmd: list[str], timeout: int = 600) -> tuple[int, str, str]:
 # Proxy / Cookies helpers
 # ─────────────────────────────────────────────────────────────────
 
-def _proxy_args() -> list[str]:
+def _proxy_args(
+    http_proxy: Optional[str] = None,
+    ytdlp_proxy: Optional[str] = None,
+) -> list[str]:
     from backend.config import settings
-    proxy = settings.YTDLP_PROXY or settings.HTTP_PROXY or None
+    proxy = ytdlp_proxy or http_proxy or settings.YTDLP_PROXY or settings.HTTP_PROXY or None
     return ["--proxy", proxy] if proxy else []
 
 
-def _cookies_args() -> list[str]:
+def _cookies_args(ytdlp_cookies: Optional[str] = None) -> list[str]:
     """
     Resolve cookies.txt path:
-      1. settings.YTDLP_COOKIES  (env var / .env)
-      2. ./cookies.txt           (project root, auto-detected)
+      1. Explicit per-user ytdlp_cookies
+      2. settings.YTDLP_COOKIES  (env var / .env)
+      3. ./cookies.txt           (project root, auto-detected)
     """
     from backend.config import settings
 
-    if settings.YTDLP_COOKIES:
-        path = os.path.abspath(settings.YTDLP_COOKIES)
+    cookie_path = ytdlp_cookies or settings.YTDLP_COOKIES or None
+    if cookie_path:
+        path = os.path.abspath(cookie_path)
         if os.path.isfile(path):
             logger.info(f"yt-dlp: using cookies from config: {path}")
             return ["--cookies", path]
@@ -83,9 +88,13 @@ def _cookies_args() -> list[str]:
     return []
 
 
-def _common_args() -> list[str]:
+def _common_args(
+    http_proxy: Optional[str] = None,
+    ytdlp_proxy: Optional[str] = None,
+    ytdlp_cookies: Optional[str] = None,
+) -> list[str]:
     """Args shared by every yt-dlp invocation."""
-    return [*_proxy_args(), *_cookies_args(), "--no-playlist"]
+    return [*_proxy_args(http_proxy, ytdlp_proxy), *_cookies_args(ytdlp_cookies), "--no-playlist"]
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -96,7 +105,12 @@ def _common_args() -> list[str]:
 # Manual subs are tried first (prefix ""), auto-generated subs use "auto:" prefix.
 _PREF_LANGS = ["en", "zh-Hans", "zh-Hant", "zh", "ja", "ko"]
 
-def _list_available_subs(url: str) -> dict[str, list[str]]:
+def _list_available_subs(
+    url: str,
+    http_proxy: Optional[str] = None,
+    ytdlp_proxy: Optional[str] = None,
+    ytdlp_cookies: Optional[str] = None,
+) -> dict[str, list[str]]:
     """
     Run `yt-dlp --list-subs --skip-download` and parse the output.
 
@@ -110,7 +124,7 @@ def _list_available_subs(url: str) -> dict[str, list[str]]:
         "yt-dlp",
         "--list-subs",
         "--skip-download",
-        *_common_args(),
+        *_common_args(http_proxy, ytdlp_proxy, ytdlp_cookies),
         url,
     ]
     rc, stdout, stderr = _run(cmd, timeout=60)
@@ -202,6 +216,9 @@ def download(
     material_id: int,
     user_id: int,
     base_path: str,
+    http_proxy: Optional[str] = None,
+    ytdlp_proxy: Optional[str] = None,
+    ytdlp_cookies: Optional[str] = None,
 ) -> tuple[str, list[dict]]:
     """
     Download video/audio from URL using yt-dlp (two-pass subtitle strategy).
@@ -209,6 +226,8 @@ def download(
     Pass 1 — list available subtitle languages (--list-subs --skip-download).
     Pass 2 — download video + the best available subtitle language.
              If no subtitles exist, downloads video only (caller uses STT).
+
+    Proxy/cookies args override per-user settings; fall back to global config.
 
     Returns:
         (file_path, subtitle_segments)
@@ -221,11 +240,11 @@ def download(
     os.makedirs(out_dir, exist_ok=True)
 
     output_template = os.path.join(out_dir, "%(title)s.%(ext)s")
-    common = _common_args()
+    common = _common_args(http_proxy, ytdlp_proxy, ytdlp_cookies)
 
     # ── Pass 1: Discover available subtitle languages ─────────────────────────
     logger.info(f"Checking available subtitles for: {url}")
-    available = _list_available_subs(url)
+    available = _list_available_subs(url, http_proxy, ytdlp_proxy, ytdlp_cookies)
     best_lang, is_auto = _pick_best_lang(available)
 
     if best_lang:

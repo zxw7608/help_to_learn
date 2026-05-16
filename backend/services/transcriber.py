@@ -20,6 +20,8 @@ def transcribe(
     worker_url: str,
     token: Optional[str] = None,
     chunk_dir: Optional[str] = None,
+    http_proxy: Optional[str] = None,
+    https_proxy: Optional[str] = None,
 ) -> list[dict]:
     """
     Transcribe an audio file. Returns list of segments:
@@ -30,7 +32,8 @@ def transcribe(
     file_size = os.path.getsize(wav_path)
 
     if file_size <= MAX_FILE_SIZE:
-        return _transcribe_file(wav_path, worker_url, token, time_offset=0.0)
+        return _transcribe_file(wav_path, worker_url, token, time_offset=0.0,
+                                http_proxy=http_proxy, https_proxy=https_proxy)
 
     # Large file: split into chunks
     if chunk_dir is None:
@@ -45,7 +48,8 @@ def transcribe(
     for chunk_path in chunks:
         try:
             chunk_duration = get_duration(chunk_path)
-            segs = _transcribe_file(chunk_path, worker_url, token, time_offset=time_offset)
+            segs = _transcribe_file(chunk_path, worker_url, token, time_offset=time_offset,
+                                    http_proxy=http_proxy, https_proxy=https_proxy)
             all_segments.extend(segs)
             time_offset += chunk_duration
         except Exception as e:
@@ -65,8 +69,12 @@ def _transcribe_file(
     worker_url: str,
     token: Optional[str],
     time_offset: float = 0.0,
+    http_proxy: Optional[str] = None,
+    https_proxy: Optional[str] = None,
 ) -> list[dict]:
     """Call the STT API and parse the response. Returns segments with adjusted timestamps."""
+    from backend.services.proxy import build_proxies
+
     url = f"{worker_url.rstrip('/')}/v1/audio/transcriptions"
 
     with open(audio_path, "rb") as f:
@@ -75,16 +83,9 @@ def _transcribe_file(
         if token:
             data["token"] = token
 
-        from backend.config import settings
-        proxies = {}
-        if settings.HTTP_PROXY:
-            proxies["http://"] = settings.HTTP_PROXY
-        if settings.HTTPS_PROXY:
-            proxies["https://"] = settings.HTTPS_PROXY
-        elif settings.HTTP_PROXY:
-            proxies["https://"] = settings.HTTP_PROXY
+        proxies = build_proxies(http_proxy, https_proxy)
 
-        logger.info(f"Calling STT API: {url}" + (f" via proxy {settings.HTTP_PROXY}" if settings.HTTP_PROXY else ""))
+        logger.info(f"Calling STT API: {url}" + (f" via proxy {proxies}" if proxies else ""))
         client_kwargs = {"proxies": proxies} if proxies else {}
         with httpx.Client(**client_kwargs) as client:
             response = client.post(url, files=files, data=data, timeout=300)

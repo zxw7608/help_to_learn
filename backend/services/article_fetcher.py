@@ -3,6 +3,7 @@ Article fetcher: given a URL, extracts the main article text using httpx + Beaut
 """
 import httpx
 import logging
+from typing import Optional
 from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
@@ -20,13 +21,22 @@ CONTENT_TAGS = ["article", "main", "section", "div"]
 BLOCK_TAGS = ["p", "h1", "h2", "h3", "h4", "li"]
 
 
-def fetch(url: str) -> str:
+def fetch(
+    url: str,
+    http_proxy: Optional[str] = None,
+    https_proxy: Optional[str] = None,
+) -> str:
     """
     Fetch a webpage and extract the main readable text.
     Returns plain text (paragraphs joined by newlines).
     """
+    from backend.services.proxy import build_proxies
+
     logger.info(f"Fetching article: {url}")
-    response = httpx.get(url, headers=HEADERS, follow_redirects=True, timeout=30)
+    proxies = build_proxies(http_proxy, https_proxy)
+    client_kwargs = {"proxies": proxies} if proxies else {}
+    with httpx.Client(**client_kwargs) as client:
+        response = client.get(url, headers=HEADERS, follow_redirects=True, timeout=30)
     response.raise_for_status()
 
     soup = BeautifulSoup(response.text, "html.parser")

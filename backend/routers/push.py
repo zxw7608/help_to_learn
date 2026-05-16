@@ -67,6 +67,8 @@ def _do_push(segment: Segment, user: User, platform: Platform, session: Session,
                 chat_id=user.telegram_chat_id,
                 audio_path=segment.audio_file_path,
                 caption=caption,
+                http_proxy=user.http_proxy,
+                https_proxy=user.https_proxy,
             )
 
         record.status = PushStatus.sent
