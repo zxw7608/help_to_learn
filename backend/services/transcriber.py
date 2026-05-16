@@ -77,21 +77,25 @@ def _transcribe_file(
 
     url = f"{worker_url.rstrip('/')}/v1/audio/transcriptions"
 
-    with open(audio_path, "rb") as f:
-        files = {"file": (os.path.basename(audio_path), f, "audio/wav")}
-        data = {"response_format": "verbose_json"}
-        if token:
-            data["token"] = token
+    proxies = build_proxies(http_proxy, https_proxy)
 
-        proxies = build_proxies(http_proxy, https_proxy)
+    logger.info(f"Calling STT API: {url}" + (f" via proxy {proxies}" if proxies else ""))
 
-        logger.info(f"Calling STT API: {url}" + (f" via proxy {proxies}" if proxies else ""))
-        client_kwargs = {"proxies": proxies} if proxies else {}
-        with httpx.Client(**client_kwargs) as client:
-            response = client.post(url, files=files, data=data, timeout=300)
+    def _do_request():
+        with open(audio_path, "rb") as f:
+            files = {"file": (os.path.basename(audio_path), f, "audio/wav")}
+            data = {"response_format": "verbose_json"}
+            if token:
+                data["token"] = token
+            client_kwargs = {"proxies": proxies} if proxies else {}
+            with httpx.Client(**client_kwargs) as client:
+                resp = client.post(url, files=files, data=data, timeout=300)
+        if resp.status_code != 200:
+            raise RuntimeError(f"STT API error {resp.status_code}: {resp.text}")
+        return resp
 
-    if response.status_code != 200:
-        raise RuntimeError(f"STT API error {response.status_code}: {response.text}")
+    from backend.services.retry import retry_call
+    response = retry_call(_do_request)
 
     result = response.json()
 

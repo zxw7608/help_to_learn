@@ -34,10 +34,17 @@ def fetch(
 
     logger.info(f"Fetching article: {url}")
     proxies = build_proxies(http_proxy, https_proxy)
-    client_kwargs = {"proxies": proxies} if proxies else {}
-    with httpx.Client(**client_kwargs) as client:
-        response = client.get(url, headers=HEADERS, follow_redirects=True, timeout=30)
-    response.raise_for_status()
+
+    from backend.services.retry import retry_call
+
+    def _do_request():
+        client_kwargs = {"proxies": proxies} if proxies else {}
+        with httpx.Client(**client_kwargs) as client:
+            resp = client.get(url, headers=HEADERS, follow_redirects=True, timeout=30)
+        resp.raise_for_status()
+        return resp
+
+    response = retry_call(_do_request)
 
     soup = BeautifulSoup(response.text, "html.parser")
 

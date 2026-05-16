@@ -77,12 +77,17 @@ def synthesize(
 
     proxies = build_proxies(http_proxy, https_proxy)
     logger.info(f"Calling TTS API for {len(text)} chars: {url}" + (f" via proxy {proxies}" if proxies else ""))
-    client_kwargs = {"proxies": proxies} if proxies else {}
-    with httpx.Client(**client_kwargs) as client:
-        response = client.post(url, json=payload, timeout=120)
+    from backend.services.retry import retry_call
 
-    if response.status_code != 200:
-        raise RuntimeError(f"TTS API error {response.status_code}: {response.text}")
+    def _do_request():
+        client_kwargs = {"proxies": proxies} if proxies else {}
+        with httpx.Client(**client_kwargs) as client:
+            resp = client.post(url, json=payload, timeout=120)
+        if resp.status_code != 200:
+            raise RuntimeError(f"TTS API error {resp.status_code}: {resp.text}")
+        return resp
+
+    response = retry_call(_do_request)
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     with open(output_path, "wb") as f:

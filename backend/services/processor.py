@@ -103,6 +103,27 @@ def get_duration(input_path: str) -> float:
     return float(info["format"]["duration"])
 
 
+def cut_wav_segment(input_path: str, start: float, end: float, output_path: str) -> str:
+    """
+    Cut a segment from a WAV file as 16kHz mono WAV (for STT input).
+    Returns path to the WAV file.
+    """
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    duration = end - start
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", input_path,
+        "-ss", str(start),
+        "-t", str(duration),
+        "-acodec", "pcm_s16le",
+        "-ar", "16000",
+        "-ac", "1",
+        output_path,
+    ]
+    _run(cmd, f"FFmpeg cut WAV segment [{start:.3f}-{end:.3f}]")
+    return output_path
+
+
 def split_audio_chunks(wav_path: str, chunk_dir: str, chunk_duration: int = CHUNK_DURATION) -> list[str]:
     """
     Split a wav file into chunks of `chunk_duration` seconds.

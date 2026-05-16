@@ -121,15 +121,13 @@ def process_media_material(material: Material, session: Session) -> None:
         logger.info(f"Created {len(subtitle_segments)} segments from subtitles for material {material.id}")
         return
 
-    # ── Branch A2: No subtitle — extract audio, then STT ─────────────────────
+    # ── Branch A2: No subtitle — VAD detect speech, then cut + STT per segment ─
     temp_dir = os.path.join(settings.STORAGE_BASE_PATH, "temp", str(material.user_id), str(material.id))
     os.makedirs(temp_dir, exist_ok=True)
     wav_path = os.path.join(temp_dir, "audio.wav")
-    logger.info("No subtitles found — extracting audio to WAV for STT...")
+    logger.info("No subtitles found — extracting audio to WAV...")
     processor.extract_audio(file_path, wav_path)
 
-    # Step 3: Transcribe (with chunking support for large files)
-    logger.info("Transcribing with STT API...")
     # Use user's token if set, fall back to global
     with Session(engine) as s:
         from backend.models.user import User
@@ -137,38 +135,89 @@ def process_media_material(material: Material, session: Session) -> None:
         token = (user.tts_token if user and user.tts_token else None) or settings.TTS_TOKEN
         worker_url = (user.tts_worker_url if user else None) or settings.TTS_WORKER_URL
 
-    chunk_dir = os.path.join(temp_dir, "chunks")
-    segments_data = transcriber.transcribe(
-        wav_path, worker_url, token, chunk_dir=chunk_dir,
-        http_proxy=user.http_proxy if user else None,
-        https_proxy=user.https_proxy if user else None,
-    )
+    # Step 3: Detect speech segments with Silero VAD
+    logger.info("Running Silero VAD on audio...")
+    from backend.services import vad as vad_service
+    vad_segments = vad_service.detect_speech_segments(wav_path)
 
-    if not segments_data:
-        raise RuntimeError("STT returned no segments")
-
-    # Step 4: Cut audio segments from STT timestamps
-    for i, seg_data in enumerate(segments_data, start=1):
-        seg_filename = f"seg_{i:03d}.mp3"
-        seg_path = os.path.join(audio_dir, seg_filename)
-
-        processor.cut_segment(file_path, seg_data["start"], seg_data["end"], seg_path)
-
-        segment = Segment(
-            material_id=material.id,
-            user_id=material.user_id,
-            index=i,
-            start_time=seg_data["start"],
-            end_time=seg_data["end"],
-            duration=seg_data["end"] - seg_data["start"],
-            text=seg_data["text"],
-            audio_source_type=AudioSourceType.original,
-            audio_file_path=seg_path,
+    if not vad_segments:
+        # Fallback: STT on the whole audio (original behavior)
+        logger.warning("VAD found no speech — falling back to full-audio STT")
+        chunk_dir = os.path.join(temp_dir, "chunks")
+        segments_data = transcriber.transcribe(
+            wav_path, worker_url, token, chunk_dir=chunk_dir,
+            http_proxy=user.http_proxy if user else None,
+            https_proxy=user.https_proxy if user else None,
         )
-        session.add(segment)
+        if not segments_data:
+            raise RuntimeError("STT returned no segments")
+        for i, seg_data in enumerate(segments_data, start=1):
+            seg_filename = f"seg_{i:03d}.mp3"
+            seg_path = os.path.join(audio_dir, seg_filename)
+            processor.cut_segment(file_path, seg_data["start"], seg_data["end"], seg_path)
+            segment = Segment(
+                material_id=material.id,
+                user_id=material.user_id,
+                index=i,
+                start_time=seg_data["start"],
+                end_time=seg_data["end"],
+                duration=seg_data["end"] - seg_data["start"],
+                text=seg_data["text"],
+                audio_source_type=AudioSourceType.original,
+                audio_file_path=seg_path,
+            )
+            session.add(segment)
+        session.commit()
+        logger.info(f"Created {len(segments_data)} segments (via fallback STT) for material {material.id}")
+    else:
+        # Step 4: For each VAD segment, cut WAV chunk → STT → cut MP3 from original
+        chunks_dir = os.path.join(temp_dir, "vad_chunks")
+        os.makedirs(chunks_dir, exist_ok=True)
+        for i, vad in enumerate(vad_segments, start=1):
+            # Cut WAV chunk for STT
+            wav_chunk_path = os.path.join(chunks_dir, f"chunk_{i:03d}.wav")
+            processor.cut_wav_segment(wav_path, vad["start"], vad["end"], wav_chunk_path)
 
-    session.commit()
-    logger.info(f"Created {len(segments_data)} segments (via STT) for material {material.id}")
+            # Transcribe the chunk
+            try:
+                chunk_segs = transcriber.transcribe(
+                    wav_chunk_path, worker_url, token,
+                    http_proxy=user.http_proxy if user else None,
+                    https_proxy=user.https_proxy if user else None,
+                )
+            except Exception as e:
+                logger.error(f"STT failed for VAD segment {i} [{vad['start']:.1f}-{vad['end']:.1f}]: {e}")
+                chunk_segs = []
+
+            # Build text from STT results (offset timestamps to absolute positions)
+            text = " ".join(s.get("text", "") for s in (chunk_segs or [])).strip()
+
+            # Clean up WAV chunk
+            try:
+                os.remove(wav_chunk_path)
+            except OSError:
+                pass
+
+            # Cut MP3 segment from original media for playback
+            seg_filename = f"seg_{i:03d}.mp3"
+            seg_path = os.path.join(audio_dir, seg_filename)
+            processor.cut_segment(file_path, vad["start"], vad["end"], seg_path)
+
+            segment = Segment(
+                material_id=material.id,
+                user_id=material.user_id,
+                index=i,
+                start_time=vad["start"],
+                end_time=vad["end"],
+                duration=vad["end"] - vad["start"],
+                text=text,
+                audio_source_type=AudioSourceType.original,
+                audio_file_path=seg_path,
+            )
+            session.add(segment)
+
+        session.commit()
+        logger.info(f"Created {len(vad_segments)} segments (via VAD+STT) for material {material.id}")
 
     # Clean up temp files
     try:

@@ -29,30 +29,32 @@ def send_audio(
 
     url = f"{TELEGRAM_API}/bot{bot_token}/sendAudio"
 
-    with open(audio_path, "rb") as f:
-        files = {"audio": (os.path.basename(audio_path), f, "audio/mpeg")}
-        data = {
-            "chat_id": chat_id,
-            "caption": caption[:1024],  # Telegram caption limit
-            "parse_mode": "HTML",
-        }
-        if title:
-            data["title"] = title[:64]
+    data = {
+        "chat_id": chat_id,
+        "caption": caption[:1024],  # Telegram caption limit
+        "parse_mode": "HTML",
+    }
+    if title:
+        data["title"] = title[:64]
 
-        proxies = build_proxies(http_proxy, https_proxy)
-        logger.info(f"Sending audio to Telegram chat {chat_id}" + (f" via proxy {proxies}" if proxies else ""))
-        client_kwargs = {"proxies": proxies} if proxies else {}
-        with httpx.Client(**client_kwargs) as client:
-            response = client.post(url, data=data, files=files, timeout=120)
+    proxies = build_proxies(http_proxy, https_proxy)
+    logger.info(f"Sending audio to Telegram chat {chat_id}" + (f" via proxy {proxies}" if proxies else ""))
 
-    if response.status_code != 200:
-        raise RuntimeError(f"Telegram API error {response.status_code}: {response.text}")
+    def _do_request():
+        with open(audio_path, "rb") as f:
+            files = {"audio": (os.path.basename(audio_path), f, "audio/mpeg")}
+            client_kwargs = {"proxies": proxies} if proxies else {}
+            with httpx.Client(**client_kwargs) as client:
+                resp = client.post(url, data=data, files=files, timeout=120)
+        if resp.status_code != 200:
+            raise RuntimeError(f"Telegram API error {resp.status_code}: {resp.text}")
+        result = resp.json()
+        if not result.get("ok"):
+            raise RuntimeError(f"Telegram API returned error: {result.get('description')}")
+        return result
 
-    result = response.json()
-    if not result.get("ok"):
-        raise RuntimeError(f"Telegram API returned error: {result.get('description')}")
-
-    return result
+    from backend.services.retry import retry_call
+    return retry_call(_do_request)
 
 
 def check_connection(
