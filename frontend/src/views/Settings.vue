@@ -124,6 +124,41 @@
         </div>
       </div>
 
+      <!-- Invite Codes -->
+      <div class="card mb-4 shadow-sm">
+        <div class="card-header"><strong>📨 Invite Codes</strong></div>
+        <div class="card-body">
+          <div class="alert alert-danger" v-if="inviteError">{{ inviteError }}</div>
+
+          <button type="button" class="btn btn-outline-primary mb-3" @click="generateInvite" :disabled="generatingInvite">
+            <span v-if="generatingInvite" class="spinner-border spinner-border-sm me-2"></span>
+            Generate Invite Code
+          </button>
+          <div class="form-text mb-3">Each code has 5 uses. 48-hour cooldown between generations.</div>
+
+          <div v-if="inviteCodes.length > 0">
+            <table class="table table-sm table-bordered">
+              <thead>
+                <tr><th>Code</th><th>Uses</th><th>Created</th><th>Status</th></tr>
+              </thead>
+              <tbody>
+                <tr v-for="c in inviteCodes" :key="c.id">
+                  <td><code>{{ c.code }}</code></td>
+                  <td>{{ c.current_uses }} / {{ c.max_uses }}</td>
+                  <td>{{ new Date(c.created_at).toLocaleString() }}</td>
+                  <td>
+                    <span v-if="!c.is_active" class="text-danger">Used up</span>
+                    <span v-else-if="c.expires_at && new Date(c.expires_at) < new Date()" class="text-danger">Expired</span>
+                    <span v-else class="text-success">Active</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-else class="text-muted small">No invite codes generated yet.</div>
+        </div>
+      </div>
+
       <!-- TTS / STT -->
       <div class="card mb-4 shadow-sm">
         <div class="card-header"><strong>🔊 TTS / STT Worker</strong></div>
@@ -154,6 +189,32 @@
 import { ref, onMounted } from 'vue'
 import { usersApi } from '../api/index.js'
 
+// ── Invite codes ──────────────────────────────────────
+const inviteCodes = ref([])
+const generatingInvite = ref(false)
+const inviteError = ref('')
+
+async function loadInviteCodes() {
+  try {
+    const res = await usersApi.listInviteCodes()
+    inviteCodes.value = res.data
+  } catch {}
+}
+
+async function generateInvite() {
+  generatingInvite.value = true
+  inviteError.value = ''
+  try {
+    await usersApi.generateInviteCode()
+    await loadInviteCodes()
+  } catch (e) {
+    inviteError.value = e.response?.data?.detail || 'Failed to generate invite code'
+  } finally {
+    generatingInvite.value = false
+  }
+}
+
+// ── Settings form ─────────────────────────────────────
 const form = ref({
   anki_deck_name: '',
   anki_model_name: '',
@@ -240,5 +301,8 @@ async function save() {
   }
 }
 
-onMounted(load)
+onMounted(() => {
+  load()
+  loadInviteCodes()
+})
 </script>

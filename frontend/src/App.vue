@@ -18,6 +18,9 @@
           <li class="nav-item">
             <RouterLink class="nav-link" to="/settings">Settings</RouterLink>
           </li>
+          <li class="nav-item" v-if="authStore.isAdmin">
+            <RouterLink class="nav-link" to="/admin">Admin</RouterLink>
+          </li>
         </ul>
         <ul class="navbar-nav">
           <li class="nav-item">

@@ -9,6 +9,7 @@ const routes = [
   { path: '/materials/temporary', component: () => import('../views/Materials.vue'),      meta: { auth: true, materialType: 'temporary' } },
   { path: '/materials/:id',      component: () => import('../views/MaterialDetail.vue'), meta: { auth: true } },
   { path: '/settings',           component: () => import('../views/Settings.vue'),       meta: { auth: true } },
+  { path: '/admin',              component: () => import('../views/Admin.vue'),          meta: { auth: true } },
   { path: '/analysis-records',  component: () => import('../views/AnalysisRecords.vue'), meta: { auth: true } },
   // Public share page — no auth required
   { path: '/share/:id',          component: () => import('../views/ShareView.vue') },

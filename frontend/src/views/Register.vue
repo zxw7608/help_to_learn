@@ -21,6 +21,10 @@
             <label class="form-label" for="reg-password">Password</label>
             <input id="reg-password" v-model="form.password" type="password" class="form-control" required minlength="6" />
           </div>
+          <div class="mb-3">
+            <label class="form-label" for="reg-invite">Invite Code (may be required)</label>
+            <input id="reg-invite" v-model="form.invite_code" type="text" class="form-control" placeholder="Leave empty if not required" />
+          </div>
           <button type="submit" class="btn btn-success w-100" :disabled="loading">
             <span v-if="loading" class="spinner-border spinner-border-sm me-2"></span>
             Register
@@ -38,13 +42,13 @@
 <script setup>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { authApi } from '../api/index.js'
+import { authApi, usersApi } from '../api/index.js'
 import { useAuthStore } from '../stores/auth.js'
 
 const router = useRouter()
 const authStore = useAuthStore()
 
-const form = ref({ username: '', email: '', password: '' })
+const form = ref({ username: '', email: '', password: '', invite_code: '' })
 const error = ref('')
 const success = ref('')
 const loading = ref(false)
@@ -54,9 +58,15 @@ async function submit() {
   success.value = ''
   loading.value = true
   try {
-    const res = await authApi.register(form.value)
+    const payload = { ...form.value }
+    if (!payload.invite_code) delete payload.invite_code
+    const res = await authApi.register(payload)
     authStore.setTokens(res.data.access_token, res.data.refresh_token)
-    authStore.setUsername(form.value.username)
+    // Fetch user info for admin status (first user is auto-admin)
+    try {
+      const me = await usersApi.me()
+      authStore.setUser(me.data.username, me.data.is_admin)
+    } catch {}
     router.push('/materials')
   } catch (e) {
     error.value = e.response?.data?.detail || 'Registration failed'

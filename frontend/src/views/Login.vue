@@ -35,7 +35,7 @@
 <script setup>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { authApi } from '../api/index.js'
+import { authApi, usersApi } from '../api/index.js'
 import { useAuthStore } from '../stores/auth.js'
 
 const router = useRouter()
@@ -51,7 +51,11 @@ async function submit() {
   try {
     const res = await authApi.login(form.value)
     authStore.setTokens(res.data.access_token, res.data.refresh_token)
-    authStore.setUsername(form.value.username)
+    // Fetch user info for admin status
+    try {
+      const me = await usersApi.me()
+      authStore.setUser(me.data.username, me.data.is_admin)
+    } catch {}
     router.push('/materials')
   } catch (e) {
     error.value = e.response?.data?.detail || 'Login failed'

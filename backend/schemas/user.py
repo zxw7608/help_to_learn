@@ -23,6 +23,7 @@ class UserRead(BaseModel):
     ytdlp_cookies: Optional[str] = None
     created_at: datetime
     is_active: bool
+    is_admin: bool
 
     model_config = {"from_attributes": True}
 

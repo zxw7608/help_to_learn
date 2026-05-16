@@ -86,6 +86,16 @@ export const usersApi = {
   uploadCookies: (formData) => api.post('/users/me/cookies', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   }),
+  listInviteCodes: () => api.get('/users/me/invite-codes'),
+  generateInviteCode: () => api.post('/users/me/invite-codes'),
+}
+
+// ── Admin ─────────────────────────────────────────
+export const adminApi = {
+  getRegistrationSettings: () => api.get('/admin/registration'),
+  updateRegistrationSettings: (data) => api.patch('/admin/registration', data),
+  listInviteCodes: () => api.get('/admin/invite-codes'),
+  createInviteCode: (data) => api.post('/admin/invite-codes', data),
 }
 
 // ── Analysis ─────────────────────────────────────

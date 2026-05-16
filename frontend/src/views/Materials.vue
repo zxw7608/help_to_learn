@@ -180,7 +180,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { materialsApi } from '../api/index.js'
 import { Modal } from 'bootstrap'
@@ -320,6 +320,7 @@ function showToast(msg, type = 'info') {
 }
 
 onMounted(load)
+watch(materialType, () => { page.value = 1; load() })
 </script>
 
 <style scoped>
