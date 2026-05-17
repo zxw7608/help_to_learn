@@ -27,7 +27,9 @@ RUN pip install uv
 WORKDIR /app
 
 # Install Python dependencies
+# CMAKE_POLICY_VERSION_MINIMUM: vendored whisper.cpp requires cmake < 3.5, newer cmake dropped compat
 COPY pyproject.toml uv.lock* ./
+ENV CMAKE_ARGS="-DCMAKE_POLICY_VERSION_MINIMUM=3.5"
 RUN uv sync --frozen --no-dev --extra whisper 2>/dev/null || uv sync --no-dev --extra whisper
 
 # Copy source code
