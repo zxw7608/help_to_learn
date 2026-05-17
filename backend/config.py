@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     # Worker
     JOB_POLL_INTERVAL: int = 5
 
+    # STT
+    STT_BACKEND: str = "api"  # "api" or "whisper_cpp"
+    STT_MAX_CONSECUTIVE_FAILURES: int = 4
+    STT_WHISPER_MODEL_PATH: str = ""  # path to GGML model file for whisper_cpp
+
     # Proxy settings (applies to HTTP requests and yt-dlp)
     # Example: http://127.0.0.1:7890  or  socks5://127.0.0.1:1080
     HTTP_PROXY: Optional[str] = None

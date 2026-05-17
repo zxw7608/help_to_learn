@@ -15,6 +15,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     nginx \
     supervisor \
     curl \
+    build-essential \
+    cmake \
     && curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
     && chmod a+rx /usr/local/bin/yt-dlp \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
@@ -26,7 +28,7 @@ WORKDIR /app
 
 # Install Python dependencies
 COPY pyproject.toml uv.lock* ./
-RUN uv sync --frozen --no-dev 2>/dev/null || uv sync --no-dev
+RUN uv sync --frozen --no-dev --extra whisper 2>/dev/null || uv sync --no-dev --extra whisper
 
 # Copy source code
 COPY backend/ ./backend/

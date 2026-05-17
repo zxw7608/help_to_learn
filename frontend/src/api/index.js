@@ -96,6 +96,10 @@ export const adminApi = {
   updateRegistrationSettings: (data) => api.patch('/admin/registration', data),
   listInviteCodes: () => api.get('/admin/invite-codes'),
   createInviteCode: (data) => api.post('/admin/invite-codes', data),
+  getSttSettings: () => api.get('/admin/stt'),
+  updateSttSettings: (data) => api.patch('/admin/stt', data),
+  downloadWhisperModel: (modelSize = 'base') => api.post('/admin/stt/download-model', { model_size: modelSize }, { timeout: 1200000 }),
+  installWhisperPackage: () => api.post('/admin/stt/install-package', {}, { timeout: 300000 }),
 }
 
 // ── Analysis ─────────────────────────────────────

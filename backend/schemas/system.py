@@ -48,3 +48,26 @@ class InviteUsageRead(BaseModel):
 
 class InviteCodeDetail(InviteCodeRead):
     usages: list[InviteUsageRead] = []
+
+
+# ── STT Settings ──────────────────────────────
+
+class SttSettingsRead(BaseModel):
+    stt_backend: str = "api"
+    stt_max_consecutive_failures: int = 4
+    stt_whisper_model_path: str = ""
+    model_exists: bool = False
+    whisper_installed: bool = False
+    whisper_ready: bool = False  # package installed AND shared library loadable
+
+    model_config = {"from_attributes": True}
+
+
+class SttSettingsUpdate(BaseModel):
+    stt_backend: Optional[str] = None
+    stt_max_consecutive_failures: Optional[int] = None
+    stt_whisper_model_path: Optional[str] = None
+
+
+class ModelDownloadRequest(BaseModel):
+    model_size: str = "base"  # tiny, base, small, medium, large

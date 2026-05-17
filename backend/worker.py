@@ -33,6 +33,13 @@ logger = logging.getLogger("worker")
 RETRY_DELAY_SECONDS = 30
 
 
+def _read_stt_setting(session, key: str, default: str = "") -> str:
+    """Read a single STT-related setting from system_settings, falling back to default."""
+    from backend.models.system_setting import SystemSetting
+    row = session.get(SystemSetting, key)
+    return row.value if row else default
+
+
 # ─────────────────────────────────────────────
 # Text splitting for article / text materials
 # ─────────────────────────────────────────────
@@ -131,9 +138,15 @@ def process_media_material(material: Material, session: Session) -> None:
     # Use user's token if set, fall back to global
     with Session(engine) as s:
         from backend.models.user import User
+        from backend.models.system_setting import SystemSetting
         user = s.get(User, material.user_id)
         token = (user.tts_token if user and user.tts_token else None) or settings.TTS_TOKEN
         worker_url = (user.tts_worker_url if user else None) or settings.TTS_WORKER_URL
+
+        # Read STT admin settings
+        stt_backend = _read_stt_setting(s, "stt_backend", settings.STT_BACKEND)
+        stt_max_fail = int(_read_stt_setting(s, "stt_max_consecutive_failures", str(settings.STT_MAX_CONSECUTIVE_FAILURES)))
+        stt_whisper_model = _read_stt_setting(s, "stt_whisper_model_path", settings.STT_WHISPER_MODEL_PATH)
 
     # Step 3: Detect speech segments with Silero VAD
     logger.info("Running Silero VAD on audio...")
@@ -148,6 +161,8 @@ def process_media_material(material: Material, session: Session) -> None:
             wav_path, worker_url, token, chunk_dir=chunk_dir,
             http_proxy=user.http_proxy if user else None,
             https_proxy=user.https_proxy if user else None,
+            backend=stt_backend,
+            whisper_model_path=stt_whisper_model,
         )
         if not segments_data:
             raise RuntimeError("STT returned no segments")
@@ -173,21 +188,37 @@ def process_media_material(material: Material, session: Session) -> None:
         # Step 4: For each VAD segment, cut WAV chunk → STT → cut MP3 from original
         chunks_dir = os.path.join(temp_dir, "vad_chunks")
         os.makedirs(chunks_dir, exist_ok=True)
+        consecutive_failures = 0
+        skipped = False
         for i, vad in enumerate(vad_segments, start=1):
             # Cut WAV chunk for STT
             wav_chunk_path = os.path.join(chunks_dir, f"chunk_{i:03d}.wav")
             processor.cut_wav_segment(wav_path, vad["start"], vad["end"], wav_chunk_path)
 
-            # Transcribe the chunk
-            try:
-                chunk_segs = transcriber.transcribe(
-                    wav_chunk_path, worker_url, token,
-                    http_proxy=user.http_proxy if user else None,
-                    https_proxy=user.https_proxy if user else None,
-                )
-            except Exception as e:
-                logger.error(f"STT failed for VAD segment {i} [{vad['start']:.1f}-{vad['end']:.1f}]: {e}")
+            if skipped:
+                # Already skipping — just create empty segment
                 chunk_segs = []
+            else:
+                # Transcribe the chunk
+                try:
+                    chunk_segs = transcriber.transcribe(
+                        wav_chunk_path, worker_url, token,
+                        http_proxy=user.http_proxy if user else None,
+                        https_proxy=user.https_proxy if user else None,
+                        backend=stt_backend,
+                        whisper_model_path=stt_whisper_model,
+                    )
+                    consecutive_failures = 0  # reset on success
+                except Exception as e:
+                    logger.error(f"STT failed for VAD segment {i} [{vad['start']:.1f}-{vad['end']:.1f}]: {e}")
+                    chunk_segs = []
+                    consecutive_failures += 1
+                    if consecutive_failures >= stt_max_fail:
+                        logger.warning(
+                            f"STT: {consecutive_failures} consecutive failures reached threshold {stt_max_fail} — "
+                            f"skipping remaining {len(vad_segments) - i} segments"
+                        )
+                        skipped = True
 
             # Build text from STT results (offset timestamps to absolute positions)
             text = " ".join(s.get("text", "") for s in (chunk_segs or [])).strip()

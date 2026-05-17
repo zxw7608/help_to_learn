@@ -1,4 +1,7 @@
+import logging
+import os
 import secrets
+import subprocess
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -9,6 +12,7 @@ from backend.dependencies import get_admin_user
 from backend.models.user import User
 from backend.models.system_setting import SystemSetting
 from backend.models.invite_code import InviteCode, InviteUsage
+from backend.config import settings
 from backend.schemas.system import (
     RegistrationSettingsRead,
     RegistrationSettingsUpdate,
@@ -16,6 +20,9 @@ from backend.schemas.system import (
     InviteCodeRead,
     InviteCodeDetail,
     InviteUsageRead,
+    SttSettingsRead,
+    SttSettingsUpdate,
+    ModelDownloadRequest,
 )
 
 router = APIRouter()
@@ -105,3 +112,120 @@ def admin_list_invite_codes(
         detail.usages = [InviteUsageRead.model_validate(u) for u in usages]
         result.append(detail)
     return result
+
+
+# ── STT Settings ──────────────────────────────────────
+
+logger = logging.getLogger(__name__)
+
+
+def _check_whisper_installed() -> bool:
+    """Check if whisper_cpp_python package is pip-installed (module spec exists)."""
+    import importlib.util
+    return importlib.util.find_spec("whisper_cpp_python") is not None
+
+
+def _check_whisper_ready() -> bool:
+    """Check if whisper_cpp_python is fully functional (shared library loadable)."""
+    try:
+        from whisper_cpp_python import Whisper  # noqa: F401
+        return True
+    except (ImportError, FileNotFoundError, OSError, RuntimeError, AttributeError) as e:
+        logger.warning(f"whisper_cpp_python is not ready: {e}")
+        return False
+
+
+def _resolve_model_path(session: Session) -> str:
+    """Return the resolved whisper model path (setting or default)."""
+    from backend.config import settings
+    path = _get_setting(session, "stt_whisper_model_path", settings.STT_WHISPER_MODEL_PATH)
+    if not path:
+        path = os.path.join(settings.STORAGE_BASE_PATH, "models", "ggml-base.bin")
+    return path
+
+
+def _build_stt_response(session: Session) -> SttSettingsRead:
+    model_path = _resolve_model_path(session)
+    return SttSettingsRead(
+        stt_backend=_get_setting(session, "stt_backend", settings.STT_BACKEND),
+        stt_max_consecutive_failures=int(_get_setting(session, "stt_max_consecutive_failures", str(settings.STT_MAX_CONSECUTIVE_FAILURES))),
+        stt_whisper_model_path=_get_setting(session, "stt_whisper_model_path", settings.STT_WHISPER_MODEL_PATH),
+        model_exists=os.path.exists(model_path),
+        whisper_installed=_check_whisper_installed(),
+        whisper_ready=_check_whisper_ready(),
+    )
+
+
+@router.get("/stt", response_model=SttSettingsRead)
+def get_stt_settings(
+    session: Session = Depends(get_session),
+    _admin: User = Depends(get_admin_user),
+):
+    return _build_stt_response(session)
+
+
+@router.patch("/stt", response_model=SttSettingsRead)
+def update_stt_settings(
+    body: SttSettingsUpdate,
+    session: Session = Depends(get_session),
+    _admin: User = Depends(get_admin_user),
+):
+    if body.stt_backend is not None:
+        _set_setting(session, "stt_backend", body.stt_backend)
+    if body.stt_max_consecutive_failures is not None:
+        _set_setting(session, "stt_max_consecutive_failures", str(body.stt_max_consecutive_failures))
+    if body.stt_whisper_model_path is not None:
+        _set_setting(session, "stt_whisper_model_path", body.stt_whisper_model_path)
+    session.commit()
+    return _build_stt_response(session)
+
+
+@router.post("/stt/download-model", response_model=SttSettingsRead)
+def download_stt_model(
+    body: ModelDownloadRequest = ModelDownloadRequest(),
+    session: Session = Depends(get_session),
+    _admin: User = Depends(get_admin_user),
+):
+    """Download a whisper GGML model from HuggingFace."""
+    from backend.services.transcriber import download_whisper_model
+    from backend.config import settings
+
+    save_dir = os.path.join(settings.STORAGE_BASE_PATH, "models")
+    saved_path = download_whisper_model(model_size=body.model_size, save_dir=save_dir)
+    _set_setting(session, "stt_whisper_model_path", saved_path)
+    session.commit()
+
+    return _build_stt_response(session)
+
+
+@router.post("/stt/install-package", response_model=SttSettingsRead)
+def install_whisper_package(
+    session: Session = Depends(get_session),
+    _admin: User = Depends(get_admin_user),
+):
+    """Install whisper-cpp-python via uv pip."""
+    if _check_whisper_installed():
+        return _build_stt_response(session)
+
+    logger.info("Installing whisper-cpp-python via uv pip...")
+    try:
+        result = subprocess.run(
+            ["uv", "pip", "install", "whisper-cpp-python"],
+            capture_output=True, text=True, timeout=300,
+        )
+        if result.returncode != 0:
+            logger.error(f"uv pip install failed: {result.stderr}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Install failed: {result.stderr[:500]}",
+            )
+        logger.info("whisper-cpp-python installed successfully")
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=500, detail="Install timed out after 5 minutes")
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=500,
+            detail="uv not found. Please run: uv pip install whisper-cpp-python",
+        )
+
+    return _build_stt_response(session)
