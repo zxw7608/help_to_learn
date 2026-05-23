@@ -8,6 +8,7 @@ from typing import Optional
 class RegistrationSettingsRead(BaseModel):
     registration_enabled: bool = True
     invite_verification_enabled: bool = False
+    user_invite_generation_enabled: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -15,6 +16,7 @@ class RegistrationSettingsRead(BaseModel):
 class RegistrationSettingsUpdate(BaseModel):
     registration_enabled: Optional[bool] = None
     invite_verification_enabled: Optional[bool] = None
+    user_invite_generation_enabled: Optional[bool] = None
 
 
 # ── Invite Codes ───────────────────────────────

@@ -21,6 +21,12 @@
           <label class="form-check-label" for="toggle-invite">Invite Verification Required</label>
           <div class="form-text">When on, registration requires a valid invite code.</div>
         </div>
+        <div class="form-check form-switch mb-3">
+          <input class="form-check-input" type="checkbox" v-model="reg.user_invite_generation_enabled"
+                 id="toggle-user-invite" @change="saveReg" />
+          <label class="form-check-label" for="toggle-user-invite">User Invite Generation</label>
+          <div class="form-text">When on, users can generate invite codes from Settings. Admins are always unrestricted.</div>
+        </div>
       </div>
     </div>
 
@@ -167,6 +173,7 @@ import { adminApi } from '../api/index.js'
 const reg = ref({
   registration_enabled: true,
   invite_verification_enabled: false,
+  user_invite_generation_enabled: false,
 })
 const stt = ref({
   stt_backend: 'api',

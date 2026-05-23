@@ -20,6 +20,7 @@ def registration_status(session: Session = Depends(get_session)):
     return {
         "registration_enabled": _get_setting(session, "registration_enabled", "true") == "true",
         "invite_required": _get_setting(session, "invite_verification_enabled", "false") == "true",
+        "user_invite_generation_enabled": _get_setting(session, "user_invite_generation_enabled", "false") == "true",
     }
 
 

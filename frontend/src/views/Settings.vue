@@ -130,11 +130,14 @@
         <div class="card-body">
           <div class="alert alert-danger" v-if="inviteError">{{ inviteError }}</div>
 
-          <button type="button" class="btn btn-outline-primary mb-3" @click="generateInvite" :disabled="generatingInvite">
-            <span v-if="generatingInvite" class="spinner-border spinner-border-sm me-2"></span>
-            Generate Invite Code
-          </button>
-          <div class="form-text mb-3">Each code has 5 uses. 48-hour cooldown between generations.</div>
+          <div v-if="userInviteEnabled">
+            <button type="button" class="btn btn-outline-primary mb-3" @click="generateInvite" :disabled="generatingInvite">
+              <span v-if="generatingInvite" class="spinner-border spinner-border-sm me-2"></span>
+              Generate Invite Code
+            </button>
+            <div class="form-text mb-3">Each code has 5 uses. 48-hour cooldown between generations.</div>
+          </div>
+          <div v-else class="alert alert-info py-2 mb-3">Invite code generation is currently disabled. Contact an administrator.</div>
 
           <div v-if="inviteCodes.length > 0">
             <table class="table table-sm table-bordered">
@@ -187,12 +190,13 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { usersApi } from '../api/index.js'
+import { usersApi, authApi } from '../api/index.js'
 
 // ── Invite codes ──────────────────────────────────────
 const inviteCodes = ref([])
 const generatingInvite = ref(false)
 const inviteError = ref('')
+const userInviteEnabled = ref(false)
 
 async function loadInviteCodes() {
   try {
@@ -301,8 +305,12 @@ async function save() {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   load()
+  try {
+    const res = await authApi.registrationStatus()
+    userInviteEnabled.value = res.data.user_invite_generation_enabled
+  } catch {}
   loadInviteCodes()
 })
 </script>

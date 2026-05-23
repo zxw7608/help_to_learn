@@ -9,6 +9,7 @@ from backend.config import settings
 from backend.database import get_session
 from backend.dependencies import get_current_user
 from backend.models.user import User
+from backend.models.system_setting import SystemSetting
 from backend.models.invite_code import InviteCode, InviteUsage
 from backend.schemas.user import UserRead, UserUpdate
 from backend.schemas.system import InviteCodeRead, InviteCodeDetail, InviteUsageRead
@@ -95,6 +96,12 @@ def generate_invite_code(
     current_user: User = Depends(get_current_user),
 ):
     """Generate an invite code. 48-hour cooldown between generations."""
+    # Check global toggle (admins bypass)
+    if not current_user.is_admin:
+        enabled = session.get(SystemSetting, "user_invite_generation_enabled")
+        if not enabled or enabled.value != "true":
+            raise HTTPException(status_code=403, detail="Invite code generation is currently disabled")
+
     # Check cooldown
     latest = session.exec(
         select(InviteCode)

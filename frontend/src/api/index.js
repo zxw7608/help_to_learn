@@ -41,6 +41,7 @@ api.interceptors.response.use(
 export const authApi = {
   register: (data) => api.post('/auth/register', data),
   login: (data) => api.post('/auth/login', data),
+  registrationStatus: () => api.get('/auth/registration-status'),
 }
 
 // ── Materials ────────────────────────────────────

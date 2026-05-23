@@ -52,6 +52,7 @@ def get_registration_settings(
     return RegistrationSettingsRead(
         registration_enabled=_get_setting(session, "registration_enabled", "true") == "true",
         invite_verification_enabled=_get_setting(session, "invite_verification_enabled", "false") == "true",
+        user_invite_generation_enabled=_get_setting(session, "user_invite_generation_enabled", "false") == "true",
     )
 
 
@@ -65,10 +66,13 @@ def update_registration_settings(
         _set_setting(session, "registration_enabled", "true" if body.registration_enabled else "false")
     if body.invite_verification_enabled is not None:
         _set_setting(session, "invite_verification_enabled", "true" if body.invite_verification_enabled else "false")
+    if body.user_invite_generation_enabled is not None:
+        _set_setting(session, "user_invite_generation_enabled", "true" if body.user_invite_generation_enabled else "false")
     session.commit()
     return RegistrationSettingsRead(
         registration_enabled=_get_setting(session, "registration_enabled", "true") == "true",
         invite_verification_enabled=_get_setting(session, "invite_verification_enabled", "false") == "true",
+        user_invite_generation_enabled=_get_setting(session, "user_invite_generation_enabled", "false") == "true",
     )
 
 
