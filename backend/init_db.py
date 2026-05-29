@@ -23,7 +23,7 @@ def init_db():
 
     # Import all models so SQLModel.metadata is populated
     from backend.models import (  # noqa: F401
-        user, material, segment, job, push_record, analysis_record,
+        user, material, segment, job, push_record, analysis_record, system_setting, invite_code, 
     )
 
     with Session(engine) as session:
