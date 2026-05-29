@@ -108,6 +108,11 @@ _PREF_LANGS = ["en"]
 # Subtitle language codes that are NOT real subtitles (e.g., Bilibili danmaku overlay)
 _SUB_LANG_BLOCKLIST = {"danmaku", "live_chat"}
 
+# Languages to never select, even as a fallback.
+# Matched by segment: "zh" blocks zh, zh-Hans, zh-Hant, ai-zh, etc.
+# (splits on "-" and checks each part, so "ai-zh" is also caught)
+_SUB_LANG_DENYLIST = {"zh"}
+
 def _list_available_subs(
     url: str,
     http_proxy: Optional[str] = None,
@@ -199,13 +204,19 @@ def _pick_best_lang(available: dict[str, list[str]]) -> tuple[Optional[str], boo
             if avail == lang or avail.startswith(lang):
                 return avail, True
 
-    # Accept any manual sub
-    if available["manual"]:
-        return available["manual"][0], False
+    def _is_denied(lang: str) -> bool:
+        parts = lang.lower().replace("_", "-").split("-")
+        return bool(_SUB_LANG_DENYLIST & set(parts))
 
-    # Accept any auto sub
-    if available["auto"]:
-        return available["auto"][0], True
+    # Accept any manual sub that isn't denied
+    for lang in available["manual"]:
+        if not _is_denied(lang):
+            return lang, False
+
+    # Accept any auto sub that isn't denied
+    for lang in available["auto"]:
+        if not _is_denied(lang):
+            return lang, True
 
     return None, False
 
