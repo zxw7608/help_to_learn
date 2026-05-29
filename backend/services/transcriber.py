@@ -16,9 +16,8 @@ logger = logging.getLogger(__name__)
 # Max file size before chunking (bytes) — worker limit is 10MB
 MAX_FILE_SIZE = 9 * 1024 * 1024  # 9MB safety margin
 
-# Shared whisper model instance (lazy-loaded, reused across calls)
-_whisper_model = None
-_whisper_model_path = None
+# whisper.cpp is NOT thread-safe — each call creates its own instance
+# so multiple threads can run truly in parallel at the cost of ~200MB per instance
 
 # ── Whisper model download ──────────────────────────────────
 
@@ -217,9 +216,12 @@ def _transcribe_whisper_cpp(
     wav_path: str,
     model_path: str = "",
 ) -> list[dict]:
-    """Transcribe using local whisper.cpp via whisper_cpp_python."""
-    global _whisper_model, _whisper_model_path
+    """Transcribe using local whisper.cpp via whisper_cpp_python.
 
+    Each call creates a fresh Whisper instance so multiple threads can run
+    in parallel without locking. whisper.cpp is NOT thread-safe when sharing
+    a single instance across threads.
+    """
     try:
         from whisper_cpp_python import Whisper
     except ImportError:
@@ -230,15 +232,9 @@ def _transcribe_whisper_cpp(
 
     resolved_path = model_path or "ggml-base.bin"
 
-    if _whisper_model is None or _whisper_model_path != resolved_path:
-        logger.info(f"Loading whisper model: {resolved_path}")
-        _whisper_model = Whisper(
-            model_path=resolved_path,
-            n_threads=1 
-        )
-        _whisper_model_path = resolved_path
-
-    result = _whisper_model.transcribe(wav_path)
+    logger.info(f"Loading whisper model: {resolved_path}")
+    model = Whisper(model_path=resolved_path, n_threads=2)
+    result = model.transcribe(wav_path)
     segments = []
     for seg in result.get("segments", []):
         text = seg.get("text", "").strip()

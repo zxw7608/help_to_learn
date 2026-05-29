@@ -25,7 +25,9 @@ from datetime import datetime, timedelta
 logger = logging.getLogger(__name__)
 
 # Maximum simultaneous material processing jobs
-MAX_CONCURRENT_JOBS = 4
+# Each whisper.cpp instance uses ~200 MB; container is capped at 1 GB,
+# so 2 concurrent jobs ≈ 400 MB whisper + OS overhead is safe.
+MAX_CONCURRENT_JOBS = 2
 
 # Seconds before a failed job may be retried
 RETRY_DELAY_SECONDS = 30
