@@ -48,10 +48,15 @@ def _read_wav(wav_path: str) -> np.ndarray:
     else:
         raise ValueError(f"Unsupported sample width: {sampwidth}")
 
-    if nchannels > 1:
-        samples = samples.reshape(-1, nchannels).mean(axis=1)
+    # Free the raw bytes immediately — no longer needed after conversion
+    del data
 
-    return samples.astype(np.float32)
+    if nchannels > 1:
+        # mean() returns float64; cast once and return directly (avoid extra copy)
+        return samples.reshape(-1, nchannels).mean(axis=1).astype(np.float32)
+
+    # samples is already float32 — return as-is, no redundant copy
+    return samples
 
 
 def detect_speech_segments(
@@ -80,6 +85,9 @@ def detect_speech_segments(
         min_silence_duration_ms=min_silence_duration_ms,
         return_seconds=True,
     )
+
+    # Release the audio arrays immediately — VAD is done, no need to hold ~73MB
+    del audio_tensor, audio_np
 
     if not raw:
         logger.warning("VAD detected no speech segments")

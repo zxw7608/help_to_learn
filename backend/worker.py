@@ -182,6 +182,10 @@ def process_media_material(material: Material, session: Session) -> None:
                 audio_file_path=seg_path,
             )
             session.add(segment)
+            # Flush every 10 segments to clear the ORM identity map
+            if i % 10 == 0:
+                session.flush()
+                session.expire_all()
         session.commit()
         logger.info(f"Created {len(segments_data)} segments (via fallback STT) for material {material.id}")
     else:
@@ -246,6 +250,10 @@ def process_media_material(material: Material, session: Session) -> None:
                 audio_file_path=seg_path,
             )
             session.add(segment)
+            # Flush every 10 segments to clear the ORM identity map
+            if i % 10 == 0:
+                session.flush()
+                session.expire_all()
 
         session.commit()
         logger.info(f"Created {len(vad_segments)} segments (via VAD+STT) for material {material.id}")
