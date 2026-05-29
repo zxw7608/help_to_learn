@@ -1,17 +1,20 @@
 """
-Background worker: polls the SQLite job table and processes pending jobs.
-Run with: uv run python backend/worker.py
+Core material processing logic.
+
+This module contains all the business functions for processing materials
+(process_media_material, process_text_material, process_material).
+
+Job scheduling and dispatch are handled by backend.job_runner, which runs
+an in-process ThreadPoolExecutor inside the FastAPI process.
+This file is NOT run as a standalone process anymore.
 """
 import json
 import logging
 import os
 import re
 import sys
-import time
-from concurrent.futures import ThreadPoolExecutor, Future
 from datetime import datetime, timedelta
 
-from apscheduler.schedulers.blocking import BlockingScheduler
 from sqlmodel import Session, select
 
 # Ensure project root is in path when running directly
@@ -24,11 +27,7 @@ from backend.models.material import Material, MaterialStatus, SourceType
 from backend.models.segment import Segment, AudioSourceType
 from backend.services import downloader, processor, transcriber, tts_service, article_fetcher
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
-logger = logging.getLogger("worker")
+logger = logging.getLogger(__name__)
 
 RETRY_DELAY_SECONDS = 30
 
@@ -377,97 +376,6 @@ def process_material(material_id: int) -> None:
             raise
 
 
-# ─────────────────────────────────────────────
-# Job dispatcher (with concurrent execution support)
-# ─────────────────────────────────────────────
-
-_MAX_CONCURRENT_JOBS = 4    # Max simultaneous material processing jobs
-_executor = ThreadPoolExecutor(max_workers=_MAX_CONCURRENT_JOBS)
-_futures: dict[int, Future] = {}  # job_id -> Future
-
-
-def _execute_job(job_id: int, job_type, job_payload: str) -> None:
-    """Execute a single job (runs in a thread pool worker)."""
-    try:
-        payload = json.loads(job_payload)
-
-        if job_type == JobType.process_material:
-            process_material(payload["material_id"])
-
-        with Session(engine) as session:
-            db_job = session.get(Job, job_id)
-            if db_job:
-                db_job.status = JobStatus.done
-                db_job.updated_at = datetime.utcnow()
-                session.add(db_job)
-                session.commit()
-        logger.info(f"Job {job_id} completed")
-
-    except Exception as e:
-        logger.error(f"Job {job_id} failed: {e}")
-        with Session(engine) as session:
-            db_job = session.get(Job, job_id)
-            if db_job:
-                db_job.retry_count += 1
-                if db_job.retry_count >= db_job.max_retries:
-                    db_job.status = JobStatus.failed
-                    db_job.error_msg = str(e)[:2000]
-                    logger.error(f"Job {job_id} permanently failed after {db_job.retry_count} retries")
-                else:
-                    db_job.status = JobStatus.pending
-                    db_job.run_at = datetime.utcnow() + timedelta(seconds=RETRY_DELAY_SECONDS)
-                    logger.warning(
-                        f"Job {job_id} will retry in {RETRY_DELAY_SECONDS}s "
-                        f"(attempt {db_job.retry_count}/{db_job.max_retries})"
-                    )
-                db_job.updated_at = datetime.utcnow()
-                session.add(db_job)
-                session.commit()
-    finally:
-        _futures.pop(job_id, None)
-
-
-def _cleanup_completed_futures() -> None:
-    """Remove completed futures from the tracking dict."""
-    done_ids = [jid for jid, fut in _futures.items() if fut.done()]
-    for jid in done_ids:
-        _futures.pop(jid, None)
-
-
-def poll_and_process() -> None:
-    """Poll pending jobs and dispatch them to the thread pool (up to max concurrent)."""
-    _cleanup_completed_futures()
-
-    # How many slots are available
-    available_slots = _MAX_CONCURRENT_JOBS - len(_futures)
-    if available_slots <= 0:
-        return
-
-    with Session(engine) as session:
-        now = datetime.utcnow()
-        # Pick up as many pending jobs as we have slots for
-        jobs = session.exec(
-            select(Job)
-            .where(Job.status == JobStatus.pending, Job.run_at <= now)
-            .order_by(Job.created_at)
-            .limit(available_slots)
-        ).all()
-
-        if not jobs:
-            return
-
-        for job in jobs:
-            logger.info(f"Picked up job {job.id} type={job.job_type}")
-            job.status = JobStatus.running
-            job.updated_at = now
-            session.add(job)
-
-            # Submit to thread pool
-            fut = _executor.submit(_execute_job, job.id, job.job_type, job.payload)
-            _futures[job.id] = fut
-
-        session.commit()
-
 
 
 # ─────────────────────────────────────────────
@@ -513,26 +421,10 @@ def recover_orphaned_jobs() -> None:
         logger.info("Orphaned jobs recovered. They will be retried now.")
 
 
+
 if __name__ == "__main__":
-
-    # Create storage directories
-    for sub in ("originals", "audio", "temp"):
-        os.makedirs(os.path.join(settings.STORAGE_BASE_PATH, sub), exist_ok=True)
-
-    # Recover any jobs that were left in 'running' state from a previous crash
-    recover_orphaned_jobs()
-
-    scheduler = BlockingScheduler(timezone="UTC")
-    scheduler.add_job(
-        poll_and_process,
-        "interval",
-        seconds=settings.JOB_POLL_INTERVAL,
-        max_instances=5,  # Allow concurrent polls so new jobs can be picked up while others run
+    print(
+        "worker.py is no longer run as a standalone process.\n"
+        "Job execution is handled by backend.job_runner inside the FastAPI process.\n"
+        "Start the application with: uv run uvicorn backend.main:app"
     )
-
-    logger.info(f"Worker started. Polling every {settings.JOB_POLL_INTERVAL}s (max {_MAX_CONCURRENT_JOBS} concurrent jobs)...")
-    try:
-        scheduler.start()
-    except (KeyboardInterrupt, SystemExit):
-        logger.info("Worker stopped.")
-

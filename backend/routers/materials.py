@@ -36,19 +36,10 @@ def _create_job(session: Session, material_id: int) -> Job:
     return job
 
 
-def _trigger_worker() -> None:
-    """Notify the worker to poll immediately instead of waiting for the next interval."""
-    import threading
-    threading.Thread(target=_run_worker_poll, daemon=True).start()
-
-
-def _run_worker_poll() -> None:
-    """Run one poll cycle in-process, then signal the scheduler to check again soon."""
-    try:
-        from backend.worker import poll_and_process
-        poll_and_process()
-    except Exception:
-        pass
+def _submit(material_id: int) -> None:
+    """Submit a newly created job to the global in-process job runner."""
+    from backend.job_runner import job_runner
+    job_runner.submit(material_id)
 
 
 @router.post("/upload", response_model=MaterialJobCreated, status_code=status.HTTP_201_CREATED)
@@ -101,7 +92,7 @@ async def upload_material(
     session.commit()
 
     job = _create_job(session, material.id)
-    _trigger_worker()
+    _submit(material.id)
     return MaterialJobCreated(material_id=material.id, job_id=job.id)
 
 
@@ -126,7 +117,7 @@ def import_url_media(
     session.refresh(material)
 
     job = _create_job(session, material.id)
-    _trigger_worker()
+    _submit(material.id)
     return MaterialJobCreated(material_id=material.id, job_id=job.id)
 
 
@@ -151,7 +142,7 @@ def import_url_article(
     session.refresh(material)
 
     job = _create_job(session, material.id)
-    _trigger_worker()
+    _submit(material.id)
     return MaterialJobCreated(material_id=material.id, job_id=job.id)
 
 
@@ -176,7 +167,7 @@ def import_text(
     session.refresh(material)
 
     job = _create_job(session, material.id)
-    _trigger_worker()
+    _submit(material.id)
     return MaterialJobCreated(material_id=material.id, job_id=job.id)
 
 
@@ -202,7 +193,7 @@ def import_text_snippet(
     session.refresh(material)
 
     job = _create_job(session, material.id)
-    _trigger_worker()
+    _submit(material.id)
     return MaterialJobCreated(material_id=material.id, job_id=job.id)
 
 
@@ -333,5 +324,5 @@ def re_execute_material(
     session.refresh(material)
 
     job = _create_job(session, material.id)
-    _trigger_worker()
+    _submit(material.id)
     return MaterialJobCreated(material_id=material.id, job_id=job.id)
