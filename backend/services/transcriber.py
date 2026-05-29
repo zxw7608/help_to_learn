@@ -16,8 +16,8 @@ logger = logging.getLogger(__name__)
 # Max file size before chunking (bytes) — worker limit is 10MB
 MAX_FILE_SIZE = 9 * 1024 * 1024  # 9MB safety margin
 
-# whisper.cpp is NOT thread-safe — each call creates its own instance
-# so multiple threads can run truly in parallel at the cost of ~200MB per instance
+# whisper.cpp is NOT thread-safe — each job creates its own instance.
+# Do NOT share a Whisper instance across threads.
 
 # ── Whisper model download ──────────────────────────────────
 
@@ -94,15 +94,18 @@ def transcribe(
     https_proxy: Optional[str] = None,
     backend: str = "api",
     whisper_model_path: str = "",
+    whisper_model=None,  # pre-built Whisper instance (whisper_cpp backend only)
 ) -> list[dict]:
     """
     Transcribe an audio file. Returns list of segments:
     [{"start": float, "end": float, "text": str}, ...]
 
     If the file is too large, splits into chunks first and offsets timestamps.
+    Pass *whisper_model* to reuse an already-loaded Whisper instance across
+    multiple calls (avoids re-loading the model for every VAD chunk).
     """
     if backend == "whisper_cpp":
-        return _transcribe_whisper_cpp(wav_path, model_path=whisper_model_path)
+        return _transcribe_whisper_cpp(wav_path, model_path=whisper_model_path, model=whisper_model)
 
     # API backend — may chunk large files
     file_size = os.path.getsize(wav_path)
@@ -215,12 +218,14 @@ def _check_whisper_installed() -> bool:
 def _transcribe_whisper_cpp(
     wav_path: str,
     model_path: str = "",
+    model=None,  # optional pre-built Whisper instance
 ) -> list[dict]:
     """Transcribe using local whisper.cpp via whisper_cpp_python.
 
-    Each call creates a fresh Whisper instance so multiple threads can run
-    in parallel without locking. whisper.cpp is NOT thread-safe when sharing
-    a single instance across threads.
+    Pass *model* to reuse an already-loaded Whisper instance (saves ~200 MB
+    reload per chunk when the caller manages the lifecycle).
+    Each call creates a fresh instance if *model* is None.
+    whisper.cpp is NOT thread-safe: never share an instance across threads.
     """
     try:
         from whisper_cpp_python import Whisper
@@ -232,8 +237,10 @@ def _transcribe_whisper_cpp(
 
     resolved_path = model_path or "ggml-base.bin"
 
-    logger.info(f"Loading whisper model: {resolved_path}")
-    model = Whisper(model_path=resolved_path, n_threads=2)
+    if model is None:
+        logger.info(f"Loading whisper model: {resolved_path}")
+        model = Whisper(model_path=resolved_path, n_threads=2)
+
     result = model.transcribe(wav_path)
     segments = []
     for seg in result.get("segments", []):

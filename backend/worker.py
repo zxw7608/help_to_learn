@@ -167,6 +167,17 @@ def process_media_material(material: Material, session: Session) -> None:
     from backend.services import vad as vad_service
     vad_segments = vad_service.detect_speech_segments(wav_path)
 
+    # Pre-load whisper model once for the whole job (reused across all chunks)
+    # to avoid re-loading 200 MB per chunk.
+    _whisper_model_instance = None
+    if stt_backend == "whisper_cpp":
+        from whisper_cpp_python import Whisper
+        logger.info(f"Pre-loading whisper model for job: {stt_whisper_model or 'ggml-base.bin'}")
+        _whisper_model_instance = Whisper(
+            model_path=stt_whisper_model or "ggml-base.bin",
+            n_threads=2,
+        )
+
     if not vad_segments:
         # Fallback: STT on the whole audio (original behavior)
         logger.warning("VAD found no speech — falling back to full-audio STT")
@@ -177,6 +188,7 @@ def process_media_material(material: Material, session: Session) -> None:
             https_proxy=user.https_proxy if user else None,
             backend=stt_backend,
             whisper_model_path=stt_whisper_model,
+            whisper_model=_whisper_model_instance,
         )
         if not segments_data:
             raise RuntimeError("STT returned no segments")
@@ -225,6 +237,7 @@ def process_media_material(material: Material, session: Session) -> None:
                         https_proxy=user.https_proxy if user else None,
                         backend=stt_backend,
                         whisper_model_path=stt_whisper_model,
+                        whisper_model=_whisper_model_instance,
                     )
                     consecutive_failures = 0  # reset on success
                 except Exception as e:
