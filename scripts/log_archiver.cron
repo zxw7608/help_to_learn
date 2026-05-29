@@ -1,0 +1,4 @@
+# /etc/cron.d/log_archiver
+# Run monthly log archiving on the 1st of each month at 02:00 UTC
+# Logs output to /app/logs/cron.log for auditability
+0 2 1 * * root /app/scripts/archive_logs.sh >> /app/logs/cron.log 2>&1

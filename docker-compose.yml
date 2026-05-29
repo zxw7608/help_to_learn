@@ -7,6 +7,11 @@ services:
     volumes:
       - ./storage:/app/storage
       - ./data:/app/data
-      - ./cookies.txt:/app/cookies.txt
+      # Persistent log directory — survives container restarts/crashes
+      - ./logs:/app/logs
     environment:
       - SITE_BASE_URL=https://yourdomain.com
+    # Memory hard limit: container is OOM-killed at 1 GB instead of taking down the host
+    # memswap_limit == mem_limit disables swap (no silent memory expansion)
+    mem_limit: 1g
+    memswap_limit: 1g

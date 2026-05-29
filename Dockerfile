@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     nginx \
     supervisor \
     curl \
+    cron \
     build-essential \
     cmake \
     && curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
@@ -47,8 +48,15 @@ RUN ln -sf /etc/nginx/sites-available/default /etc/nginx/sites-enabled/default
 # Copy built frontend from Stage 1
 COPY --from=frontend-build /app/frontend/dist /usr/share/nginx/html
 
-# Create storage directories
-RUN mkdir -p storage/originals storage/audio storage/temp data
+# Create storage and persistent log directories
+RUN mkdir -p storage/originals storage/audio storage/temp data logs/archives
+
+# Copy log archiving script and install cron job
+COPY scripts/archive_logs.sh /app/scripts/archive_logs.sh
+COPY scripts/log_archiver.cron /etc/cron.d/log_archiver
+RUN chmod +x /app/scripts/archive_logs.sh \
+    && chmod 0644 /etc/cron.d/log_archiver \
+    && crontab /etc/cron.d/log_archiver
 
 ENV STORAGE_BASE_PATH=/app/storage
 ENV DATABASE_URL=sqlite:////app/data/data.db
