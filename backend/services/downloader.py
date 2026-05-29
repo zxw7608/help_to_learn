@@ -237,25 +237,26 @@ def download(
     ytdlp_cookies: Optional[str] = None,
 ) -> tuple[str, list[dict]]:
     """
-    Download video/audio from URL using yt-dlp (two-pass subtitle strategy).
+    Download AUDIO ONLY from URL using yt-dlp (two-pass subtitle strategy).
 
     Pass 1 — list available subtitle languages (--list-subs --skip-download).
-    Pass 2 — download video + the best available subtitle language.
-             If no subtitles exist, downloads video only (caller uses STT).
+    Pass 2 — download AUDIO ONLY (bestaudio) + the best available subtitle.
+             If no subtitles exist, downloads audio only (caller uses STT).
 
     Proxy/cookies args override per-user settings; fall back to global config.
 
     Returns:
         (file_path, subtitle_segments)
 
-        - file_path         : absolute path to the downloaded video/audio file
+        - file_path         : absolute path to the downloaded audio file
         - subtitle_segments : [{start, end, text}, ...] in seconds.
                               Empty list → caller should fall back to STT.
     """
     out_dir = os.path.join(base_path, "originals", str(user_id), str(material_id))
     os.makedirs(out_dir, exist_ok=True)
 
-    output_template = os.path.join(out_dir, "video.%(ext)s")
+    # Audio-only output template — yt-dlp will use the correct extension (m4a/webm/mp3…)
+    output_template = os.path.join(out_dir, "audio.%(ext)s")
     common = _common_args(http_proxy, ytdlp_proxy, ytdlp_cookies)
 
     # ── Pass 1: Discover available subtitle languages ─────────────────────────
@@ -271,7 +272,7 @@ def download(
     else:
         logger.info("No subtitles found — will download video only (STT fallback)")
 
-    # ── Pass 2: Download video (+ subtitle if available) ─────────────────────
+    # ── Pass 2: Download AUDIO ONLY (+ subtitle if available) ────────────────
     sub_args: list[str] = []
     if best_lang:
         if is_auto:
@@ -284,28 +285,31 @@ def download(
     cmd = [
         "yt-dlp",
         "-o", output_template,
-        "--format", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-        "--merge-output-format", "mp4",
+        # Audio-only: prefer m4a, fall back to best available audio
+        "--format", "bestaudio[ext=m4a]/bestaudio/best",
+        # Do NOT merge / remux — keep native audio container
         *sub_args,
         *common,
         url,
     ]
-    logger.info(f"Downloading: {' '.join(cmd)}")
+    logger.info(f"Downloading audio only: {' '.join(cmd)}")
     rc, stdout, stderr = _run(cmd, timeout=600)
 
     if rc != 0:
         raise RuntimeError(f"yt-dlp download failed:\n{stderr}")
 
-    # ── Locate the downloaded video file ─────────────────────────────────────
+    # ── Locate the downloaded audio file ─────────────────────────────────────
+    _SUB_EXTS = {".vtt", ".srt", ".json", ".ass", ".ssa"}
     all_files = [f for f in os.listdir(out_dir) if os.path.isfile(os.path.join(out_dir, f))]
-    video_files = [f for f in all_files if f.lower().endswith(".mp4")]
-    if not video_files:
-        video_files = [f for f in all_files if not f.endswith((".vtt", ".srt", ".json", ".ass"))]
-    if not video_files:
-        raise RuntimeError("yt-dlp did not produce any output file")
+    audio_files = [
+        f for f in all_files
+        if os.path.splitext(f)[1].lower() not in _SUB_EXTS
+    ]
+    if not audio_files:
+        raise RuntimeError("yt-dlp did not produce any audio output file")
 
-    video_path = os.path.join(out_dir, sorted(video_files)[0])
-    logger.info(f"Downloaded video: {video_path}")
+    audio_path = os.path.join(out_dir, sorted(audio_files)[0])
+    logger.info(f"Downloaded audio: {audio_path}")
 
     # ── Find and parse subtitle file ─────────────────────────────────────────
     sub_files = [f for f in all_files if f.endswith((".vtt", ".srt"))]
@@ -334,4 +338,4 @@ def download(
     else:
         logger.info("No subtitle file produced — caller should use STT")
 
-    return video_path, subtitle_segments
+    return audio_path, subtitle_segments

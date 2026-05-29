@@ -61,6 +61,41 @@ def extract_audio(input_path: str, output_path: str) -> str:
     return output_path
 
 
+def extract_audio_file(input_path: str, output_path: str) -> str:
+    """
+    Extract audio from a video file and save as m4a (AAC copy when possible).
+
+    Used when the user UPLOADS a video file: we strip the video track up-front
+    so that all downstream processing (cut_segment, STT, VAD) works on a much
+    smaller audio-only file instead of the original video.
+
+    Returns path to the audio file.
+    """
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", input_path,
+        "-vn",                  # Drop video stream
+        "-acodec", "copy",      # Copy audio codec (no re-encode — fast & lossless)
+        output_path,
+    ]
+    try:
+        _run(cmd, "FFmpeg extract audio (copy)")
+    except RuntimeError:
+        # Fallback: re-encode to AAC if copy fails (e.g. incompatible container)
+        logger.warning("Audio copy failed, falling back to AAC re-encode")
+        cmd_fallback = [
+            "ffmpeg", "-y",
+            "-i", input_path,
+            "-vn",
+            "-acodec", "aac",
+            "-ab", "192k",
+            output_path,
+        ]
+        _run(cmd_fallback, "FFmpeg extract audio (re-encode AAC)")
+    return output_path
+
+
 def cut_segment(input_path: str, start: float, end: float, output_path: str) -> str:
     """
     Cut a segment from the original media file as 64kbps mono mp3.

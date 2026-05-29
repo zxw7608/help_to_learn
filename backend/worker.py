@@ -94,11 +94,26 @@ def process_media_material(material: Material, session: Session) -> None:
             pass
         session.add(material)
         session.commit()
+        # yt-dlp already downloaded audio-only; use it directly
+        audio_path = file_path
     else:
         file_path = material.original_file_path
+        # ── Uploaded video: extract audio track first ──────────────────────────
+        # Strip the video stream so all downstream FFmpeg/VAD/STT work on a
+        # much smaller audio-only file.
+        originals_dir = os.path.join(
+            settings.STORAGE_BASE_PATH, "originals",
+            str(material.user_id), str(material.id),
+        )
+        os.makedirs(originals_dir, exist_ok=True)
+        audio_path = os.path.join(originals_dir, "audio.m4a")
+        logger.info(f"Extracting audio from uploaded file: {file_path} → {audio_path}")
+        processor.extract_audio_file(file_path, audio_path)
+        logger.info(f"Audio extracted: {audio_path}")
 
     if not file_path or not os.path.exists(file_path):
         raise RuntimeError(f"Source file not found: {file_path}")
+
 
     audio_dir = os.path.join(settings.STORAGE_BASE_PATH, "audio", str(material.user_id), str(material.id))
     os.makedirs(audio_dir, exist_ok=True)
@@ -109,7 +124,7 @@ def process_media_material(material: Material, session: Session) -> None:
         for i, seg_data in enumerate(subtitle_segments, start=1):
             seg_filename = f"seg_{i:03d}.mp3"
             seg_path = os.path.join(audio_dir, seg_filename)
-            processor.cut_segment(file_path, seg_data["start"], seg_data["end"], seg_path)
+            processor.cut_segment(audio_path, seg_data["start"], seg_data["end"], seg_path)
 
             segment = Segment(
                 material_id=material.id,
@@ -133,7 +148,7 @@ def process_media_material(material: Material, session: Session) -> None:
     os.makedirs(temp_dir, exist_ok=True)
     wav_path = os.path.join(temp_dir, "audio.wav")
     logger.info("No subtitles found — extracting audio to WAV...")
-    processor.extract_audio(file_path, wav_path)
+    processor.extract_audio(audio_path, wav_path)
 
     # Use user's token if set, fall back to global
     with Session(engine) as s:
@@ -169,7 +184,7 @@ def process_media_material(material: Material, session: Session) -> None:
         for i, seg_data in enumerate(segments_data, start=1):
             seg_filename = f"seg_{i:03d}.mp3"
             seg_path = os.path.join(audio_dir, seg_filename)
-            processor.cut_segment(file_path, seg_data["start"], seg_data["end"], seg_path)
+            processor.cut_segment(audio_path, seg_data["start"], seg_data["end"], seg_path)
             segment = Segment(
                 material_id=material.id,
                 user_id=material.user_id,
@@ -236,7 +251,7 @@ def process_media_material(material: Material, session: Session) -> None:
             # Cut MP3 segment from original media for playback
             seg_filename = f"seg_{i:03d}.mp3"
             seg_path = os.path.join(audio_dir, seg_filename)
-            processor.cut_segment(file_path, vad["start"], vad["end"], seg_path)
+            processor.cut_segment(audio_path, vad["start"], vad["end"], seg_path)
 
             segment = Segment(
                 material_id=material.id,
