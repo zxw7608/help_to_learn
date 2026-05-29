@@ -103,7 +103,10 @@ def _common_args(
 
 # Preferred subtitle languages, checked in order.
 # Manual subs are tried first (prefix ""), auto-generated subs use "auto:" prefix.
-_PREF_LANGS = ["en", "zh-Hans", "zh-Hant", "zh", "ja", "ko"]
+_PREF_LANGS = ["en"]
+
+# Subtitle language codes that are NOT real subtitles (e.g., Bilibili danmaku overlay)
+_SUB_LANG_BLOCKLIST = {"danmaku", "live_chat"}
 
 def _list_available_subs(
     url: str,
@@ -169,6 +172,8 @@ def _list_available_subs(
             elif in_auto:
                 auto.append(lang)
 
+    manual = [l for l in manual if l not in _SUB_LANG_BLOCKLIST]
+    auto = [l for l in auto if l not in _SUB_LANG_BLOCKLIST]
     logger.info(f"Available manual subs: {manual}")
     logger.info(f"Available auto-generated subs: {auto}")
     return {"manual": manual, "auto": auto}
@@ -239,7 +244,7 @@ def download(
     out_dir = os.path.join(base_path, "originals", str(user_id), str(material_id))
     os.makedirs(out_dir, exist_ok=True)
 
-    output_template = os.path.join(out_dir, "%(title)s.%(ext)s")
+    output_template = os.path.join(out_dir, "video.%(ext)s")
     common = _common_args(http_proxy, ytdlp_proxy, ytdlp_cookies)
 
     # ── Pass 1: Discover available subtitle languages ─────────────────────────
