@@ -178,112 +178,124 @@ def process_media_material(material: Material, session: Session) -> None:
             n_threads=2,
         )
 
-    if not vad_segments:
-        # Fallback: STT on the whole audio (original behavior)
-        logger.warning("VAD found no speech — falling back to full-audio STT")
-        chunk_dir = os.path.join(temp_dir, "chunks")
-        segments_data = transcriber.transcribe(
-            wav_path, worker_url, token, chunk_dir=chunk_dir,
-            http_proxy=user.http_proxy if user else None,
-            https_proxy=user.https_proxy if user else None,
-            backend=stt_backend,
-            whisper_model_path=stt_whisper_model,
-            whisper_model=_whisper_model_instance,
-        )
-        if not segments_data:
-            raise RuntimeError("STT returned no segments")
-        for i, seg_data in enumerate(segments_data, start=1):
-            seg_filename = f"seg_{i:03d}.mp3"
-            seg_path = os.path.join(audio_dir, seg_filename)
-            processor.cut_segment(audio_path, seg_data["start"], seg_data["end"], seg_path)
-            segment = Segment(
-                material_id=material.id,
-                user_id=material.user_id,
-                index=i,
-                start_time=seg_data["start"],
-                end_time=seg_data["end"],
-                duration=seg_data["end"] - seg_data["start"],
-                text=seg_data["text"],
-                audio_source_type=AudioSourceType.original,
-                audio_file_path=seg_path,
+    try:
+        if not vad_segments:
+            # Fallback: STT on the whole audio (original behavior)
+            logger.warning("VAD found no speech — falling back to full-audio STT")
+            chunk_dir = os.path.join(temp_dir, "chunks")
+            segments_data = transcriber.transcribe(
+                wav_path, worker_url, token, chunk_dir=chunk_dir,
+                http_proxy=user.http_proxy if user else None,
+                https_proxy=user.https_proxy if user else None,
+                backend=stt_backend,
+                whisper_model_path=stt_whisper_model,
+                whisper_model=_whisper_model_instance,
             )
-            session.add(segment)
-            # Flush every 10 segments to clear the ORM identity map
-            if i % 10 == 0:
-                session.flush()
-                session.expire_all()
-        session.commit()
-        logger.info(f"Created {len(segments_data)} segments (via fallback STT) for material {material.id}")
-    else:
-        # Step 4: For each VAD segment, cut WAV chunk → STT → cut MP3 from original
-        chunks_dir = os.path.join(temp_dir, "vad_chunks")
-        os.makedirs(chunks_dir, exist_ok=True)
-        consecutive_failures = 0
-        skipped = False
-        for i, vad in enumerate(vad_segments, start=1):
-            # Cut WAV chunk for STT
-            wav_chunk_path = os.path.join(chunks_dir, f"chunk_{i:03d}.wav")
-            processor.cut_wav_segment(wav_path, vad["start"], vad["end"], wav_chunk_path)
+            if not segments_data:
+                raise RuntimeError("STT returned no segments")
+            for i, seg_data in enumerate(segments_data, start=1):
+                seg_filename = f"seg_{i:03d}.mp3"
+                seg_path = os.path.join(audio_dir, seg_filename)
+                processor.cut_segment(audio_path, seg_data["start"], seg_data["end"], seg_path)
+                segment = Segment(
+                    material_id=material.id,
+                    user_id=material.user_id,
+                    index=i,
+                    start_time=seg_data["start"],
+                    end_time=seg_data["end"],
+                    duration=seg_data["end"] - seg_data["start"],
+                    text=seg_data["text"],
+                    audio_source_type=AudioSourceType.original,
+                    audio_file_path=seg_path,
+                )
+                session.add(segment)
+                # Flush every 10 segments to clear the ORM identity map
+                if i % 10 == 0:
+                    session.flush()
+                    session.expire_all()
+            session.commit()
+            logger.info(f"Created {len(segments_data)} segments (via fallback STT) for material {material.id}")
+        else:
+            # Step 4: For each VAD segment, cut WAV chunk → STT → cut MP3 from original
+            chunks_dir = os.path.join(temp_dir, "vad_chunks")
+            os.makedirs(chunks_dir, exist_ok=True)
+            consecutive_failures = 0
+            skipped = False
+            for i, vad in enumerate(vad_segments, start=1):
+                # Cut WAV chunk for STT
+                wav_chunk_path = os.path.join(chunks_dir, f"chunk_{i:03d}.wav")
+                processor.cut_wav_segment(wav_path, vad["start"], vad["end"], wav_chunk_path)
 
-            if skipped:
-                # Already skipping — just create empty segment
-                chunk_segs = []
-            else:
-                # Transcribe the chunk
-                try:
-                    chunk_segs = transcriber.transcribe(
-                        wav_chunk_path, worker_url, token,
-                        http_proxy=user.http_proxy if user else None,
-                        https_proxy=user.https_proxy if user else None,
-                        backend=stt_backend,
-                        whisper_model_path=stt_whisper_model,
-                        whisper_model=_whisper_model_instance,
-                    )
-                    consecutive_failures = 0  # reset on success
-                except Exception as e:
-                    logger.error(f"STT failed for VAD segment {i} [{vad['start']:.1f}-{vad['end']:.1f}]: {e}")
+                if skipped:
+                    # Already skipping — just create empty segment
                     chunk_segs = []
-                    consecutive_failures += 1
-                    if consecutive_failures >= stt_max_fail:
-                        logger.warning(
-                            f"STT: {consecutive_failures} consecutive failures reached threshold {stt_max_fail} — "
-                            f"skipping remaining {len(vad_segments) - i} segments"
+                else:
+                    # Transcribe the chunk
+                    try:
+                        chunk_segs = transcriber.transcribe(
+                            wav_chunk_path, worker_url, token,
+                            http_proxy=user.http_proxy if user else None,
+                            https_proxy=user.https_proxy if user else None,
+                            backend=stt_backend,
+                            whisper_model_path=stt_whisper_model,
+                            whisper_model=_whisper_model_instance,
                         )
-                        skipped = True
+                        consecutive_failures = 0  # reset on success
+                    except Exception as e:
+                        logger.error(f"STT failed for VAD segment {i} [{vad['start']:.1f}-{vad['end']:.1f}]: {e}")
+                        chunk_segs = []
+                        consecutive_failures += 1
+                        if consecutive_failures >= stt_max_fail:
+                            logger.warning(
+                                f"STT: {consecutive_failures} consecutive failures reached threshold {stt_max_fail} — "
+                                f"skipping remaining {len(vad_segments) - i} segments"
+                            )
+                            skipped = True
 
-            # Build text from STT results (offset timestamps to absolute positions)
-            text = " ".join(s.get("text", "") for s in (chunk_segs or [])).strip()
+                # Build text from STT results (offset timestamps to absolute positions)
+                text = " ".join(s.get("text", "") for s in (chunk_segs or [])).strip()
 
-            # Clean up WAV chunk
-            try:
-                os.remove(wav_chunk_path)
-            except OSError:
-                pass
+                # Clean up WAV chunk
+                try:
+                    os.remove(wav_chunk_path)
+                except OSError:
+                    pass
 
-            # Cut MP3 segment from original media for playback
-            seg_filename = f"seg_{i:03d}.mp3"
-            seg_path = os.path.join(audio_dir, seg_filename)
-            processor.cut_segment(audio_path, vad["start"], vad["end"], seg_path)
+                # Cut MP3 segment from original media for playback
+                seg_filename = f"seg_{i:03d}.mp3"
+                seg_path = os.path.join(audio_dir, seg_filename)
+                processor.cut_segment(audio_path, vad["start"], vad["end"], seg_path)
 
-            segment = Segment(
-                material_id=material.id,
-                user_id=material.user_id,
-                index=i,
-                start_time=vad["start"],
-                end_time=vad["end"],
-                duration=vad["end"] - vad["start"],
-                text=text,
-                audio_source_type=AudioSourceType.original,
-                audio_file_path=seg_path,
-            )
-            session.add(segment)
-            # Flush every 10 segments to clear the ORM identity map
-            if i % 10 == 0:
-                session.flush()
-                session.expire_all()
+                segment = Segment(
+                    material_id=material.id,
+                    user_id=material.user_id,
+                    index=i,
+                    start_time=vad["start"],
+                    end_time=vad["end"],
+                    duration=vad["end"] - vad["start"],
+                    text=text,
+                    audio_source_type=AudioSourceType.original,
+                    audio_file_path=seg_path,
+                )
+                session.add(segment)
+                # Flush every 10 segments to clear the ORM identity map
+                if i % 10 == 0:
+                    session.flush()
+                    session.expire_all()
 
-        session.commit()
-        logger.info(f"Created {len(vad_segments)} segments (via VAD+STT) for material {material.id}")
+            session.commit()
+            logger.info(f"Created {len(vad_segments)} segments (via VAD+STT) for material {material.id}")
+
+    finally:
+        # Explicitly release the whisper model to reclaim ~200 MB immediately.
+        # whisper_cpp_python holds native C++ memory; del + gc.collect() ensures
+        # the destructor runs before the next job starts (or the thread goes idle).
+        if _whisper_model_instance is not None:
+            del _whisper_model_instance
+            _whisper_model_instance = None
+            import gc
+            gc.collect()
+            logger.info("Whisper model released (memory reclaimed)")
 
     # Clean up temp files
     try:
