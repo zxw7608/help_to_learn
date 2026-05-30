@@ -59,7 +59,7 @@ def split_text_into_sentences(text: str) -> list[str]:
 # Core pipeline functions
 # ─────────────────────────────────────────────
 
-def process_media_material(material: Material, session: Session) -> None:
+def process_media_material(material: Material) -> None:
     """Branch A: upload / url_media — extract audio, cut segments.
 
     Pipeline:
@@ -97,6 +97,11 @@ def process_media_material(material: Material, session: Session) -> None:
         audio_path = file_path
     else:
         file_path = material.original_file_path
+        # ── Validate before touching the file ──────────────────────────────────
+        # original_file_path can be None if the upload record was created but the
+        # file was never actually saved (e.g. a failed/interrupted upload).
+        if not file_path or not os.path.exists(file_path):
+            raise RuntimeError(f"Uploaded file not found: {file_path!r} — the upload may have failed")
         # ── Uploaded video: extract audio track first ──────────────────────────
         # Strip the video stream so all downstream FFmpeg/VAD/STT work on a
         # much smaller audio-only file.
@@ -120,12 +125,13 @@ def process_media_material(material: Material, session: Session) -> None:
     # ── Branch A1: Subtitle available — cut directly ──────────────────────────
     if subtitle_segments:
         logger.info(f"Using {len(subtitle_segments)} subtitle segments to cut audio (skip STT)")
+        segs_to_add = []
         for i, seg_data in enumerate(subtitle_segments, start=1):
             seg_filename = f"seg_{i:03d}.mp3"
             seg_path = os.path.join(audio_dir, seg_filename)
             processor.cut_segment(audio_path, seg_data["start"], seg_data["end"], seg_path)
 
-            segment = Segment(
+            segs_to_add.append(Segment(
                 material_id=material.id,
                 user_id=material.user_id,
                 index=i,
@@ -135,10 +141,12 @@ def process_media_material(material: Material, session: Session) -> None:
                 text=seg_data["text"],
                 audio_source_type=AudioSourceType.original,
                 audio_file_path=seg_path,
-            )
-            session.add(segment)
+            ))
 
-        session.commit()
+        # Use a short independent session so the write lock is held only during commit.
+        with Session(engine) as s:
+            s.add_all(segs_to_add)
+            s.commit()
         logger.info(f"Created {len(subtitle_segments)} segments from subtitles for material {material.id}")
         return
 
@@ -193,11 +201,12 @@ def process_media_material(material: Material, session: Session) -> None:
             )
             if not segments_data:
                 raise RuntimeError("STT returned no segments")
+            segs_to_add = []
             for i, seg_data in enumerate(segments_data, start=1):
                 seg_filename = f"seg_{i:03d}.mp3"
                 seg_path = os.path.join(audio_dir, seg_filename)
                 processor.cut_segment(audio_path, seg_data["start"], seg_data["end"], seg_path)
-                segment = Segment(
+                segs_to_add.append(Segment(
                     material_id=material.id,
                     user_id=material.user_id,
                     index=i,
@@ -207,13 +216,10 @@ def process_media_material(material: Material, session: Session) -> None:
                     text=seg_data["text"],
                     audio_source_type=AudioSourceType.original,
                     audio_file_path=seg_path,
-                )
-                session.add(segment)
-                # Flush every 10 segments to clear the ORM identity map
-                if i % 10 == 0:
-                    session.flush()
-                    session.expire_all()
-            session.commit()
+                ))
+            with Session(engine) as s:
+                s.add_all(segs_to_add)
+                s.commit()
             logger.info(f"Created {len(segments_data)} segments (via fallback STT) for material {material.id}")
         else:
             # Step 4: For each VAD segment, cut WAV chunk → STT → cut MP3 from original
@@ -221,6 +227,7 @@ def process_media_material(material: Material, session: Session) -> None:
             os.makedirs(chunks_dir, exist_ok=True)
             consecutive_failures = 0
             skipped = False
+            pending_segs: list[Segment] = []
             for i, vad in enumerate(vad_segments, start=1):
                 # Cut WAV chunk for STT
                 wav_chunk_path = os.path.join(chunks_dir, f"chunk_{i:03d}.wav")
@@ -266,7 +273,7 @@ def process_media_material(material: Material, session: Session) -> None:
                 seg_path = os.path.join(audio_dir, seg_filename)
                 processor.cut_segment(audio_path, vad["start"], vad["end"], seg_path)
 
-                segment = Segment(
+                pending_segs.append(Segment(
                     material_id=material.id,
                     user_id=material.user_id,
                     index=i,
@@ -276,15 +283,20 @@ def process_media_material(material: Material, session: Session) -> None:
                     text=text,
                     audio_source_type=AudioSourceType.original,
                     audio_file_path=seg_path,
-                )
-                session.add(segment)
-                # Flush every 10 segments to clear the ORM identity map
-                if i % 10 == 0:
-                    session.flush()
-                    session.expire_all()
+                ))
+                # Flush to DB every 10 segments to keep memory bounded
+                if len(pending_segs) >= 10:
+                    with Session(engine) as s:
+                        s.add_all(pending_segs)
+                        s.commit()
+                    pending_segs.clear()
 
-            session.commit()
-            logger.info(f"Created {len(vad_segments)} segments (via VAD+STT) for material {material.id}")
+        # Flush any remaining segments
+        if pending_segs:
+            with Session(engine) as s:
+                s.add_all(pending_segs)
+                s.commit()
+        logger.info(f"Created {len(vad_segments)} segments (via VAD+STT) for material {material.id}")
 
     finally:
         # Explicitly release the whisper model to reclaim ~200 MB immediately.
@@ -306,7 +318,7 @@ def process_media_material(material: Material, session: Session) -> None:
 
 
 
-def process_text_material(material: Material, session: Session) -> None:
+def process_text_material(material: Material) -> None:
     """Branch B: url_article / text — fetch text if needed, TTS each sentence."""
     # Look up user settings (proxy, worker) once
     with Session(engine) as s:
@@ -322,9 +334,13 @@ def process_text_material(material: Material, session: Session) -> None:
         raw_text = article_fetcher.fetch(material.source_url,
                                           http_proxy=http_proxy,
                                           https_proxy=https_proxy)
-        material.raw_text = raw_text
-        session.add(material)
-        session.commit()
+        # Persist raw_text using a short session
+        with Session(engine) as s:
+            mat = s.get(Material, material.id)
+            if mat:
+                mat.raw_text = raw_text
+                s.add(mat)
+                s.commit()
     else:
         raw_text = material.raw_text
 
@@ -344,6 +360,7 @@ def process_text_material(material: Material, session: Session) -> None:
     selected_voice = tts_service.get_random_voice(material.language)
     logger.info(f"Selected random voice for material {material.id}: {selected_voice}")
 
+    segs_to_add = []
     for i, sentence in enumerate(sentences, start=1):
         seg_filename = f"seg_{i:03d}.mp3"
         seg_path = os.path.join(audio_dir, seg_filename)
@@ -351,7 +368,7 @@ def process_text_material(material: Material, session: Session) -> None:
         tts_service.synthesize(sentence, seg_path, worker_url, voice=selected_voice,
                                http_proxy=http_proxy, https_proxy=https_proxy)
 
-        segment = Segment(
+        segs_to_add.append(Segment(
             material_id=material.id,
             user_id=material.user_id,
             index=i,
@@ -361,10 +378,11 @@ def process_text_material(material: Material, session: Session) -> None:
             text=sentence,
             audio_source_type=AudioSourceType.tts,
             audio_file_path=seg_path,
-        )
-        session.add(segment)
+        ))
 
-    session.commit()
+    with Session(engine) as s:
+        s.add_all(segs_to_add)
+        s.commit()
     logger.info(f"Created {len(sentences)} TTS segments for material {material.id}")
 
 
@@ -381,9 +399,9 @@ def process_material(material_id: int) -> None:
 
         try:
             if material.source_type in (SourceType.upload, SourceType.url_media):
-                process_media_material(material, session)
+                process_media_material(material)
             else:
-                process_text_material(material, session)
+                process_text_material(material)
 
             material.status = MaterialStatus.done
             material.updated_at = datetime.utcnow()
