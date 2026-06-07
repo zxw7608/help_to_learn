@@ -59,7 +59,7 @@ def split_text_into_sentences(text: str) -> list[str]:
 # Core pipeline functions
 # ─────────────────────────────────────────────
 
-def process_media_material(material: Material) -> None:
+def process_media_material(material: Material, session: Session) -> None:
     """Branch A: upload / url_media — extract audio, cut segments.
 
     Pipeline:
@@ -72,9 +72,8 @@ def process_media_material(material: Material) -> None:
     # Step 1: Download if needed
     if material.source_type == SourceType.url_media:
         # Look up user for per-user proxy / cookie settings
-        with Session(engine) as s:
-            from backend.models.user import User
-            user = s.get(User, material.user_id)
+        from backend.models.user import User
+        user = session.get(User, material.user_id)
         logger.info(f"Downloading media from: {material.source_url}")
         file_path, subtitle_segments = downloader.download(
             url=material.source_url,
@@ -399,7 +398,7 @@ def process_material(material_id: int) -> None:
 
         try:
             if material.source_type in (SourceType.upload, SourceType.url_media):
-                process_media_material(material)
+                process_media_material(material, session)
             else:
                 process_text_material(material)
 
