@@ -77,8 +77,8 @@ async def upload_material(
     file_path = os.path.join(out_dir, file.filename)
 
     with open(file_path, "wb") as f:
-        content = await file.read()
-        f.write(content)
+        while chunk := await file.read(8 * 1024 * 1024):
+            f.write(chunk)
 
     # Try to get duration
     try:
